@@ -1,0 +1,57 @@
+# ── Python ────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# ── IDE / editor ─────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-*
+
+# ── OS ───────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*~
+
+# ── Logs ─────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Environment / secrets ────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Dev artifacts ────────────────────────────────────────
+# Screenshots and scratch scripts used during development.
+.tmp/
+
+# ── Playwright ───────────────────────────────────────────
+test-results/
+playwright-report/
+
+# ── Coverage / TS build cache ────────────────────────────
+coverage/
+*.tsbuildinfo
+
+# ── yt-dlp capture cache (host-side temp) ─────────────────
+seo-tool-2-capture/
+
+# NOTE: frontend/ has its own .gitignore covering node_modules,
+# dist, *.local — no need to duplicate here.

@@ -1,0 +1,224 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    /* ── LuxuryPresence palette, dark mode ────────────────────
+       Black body, charcoal surfaces, white text, gold accents.
+       No rounded corners. */
+
+    /* Surfaces */
+    --page:        0 0% 4%;          /* near-black body */
+    --page-2:      0 0% 6%;
+    --surface:     0 0% 8%;          /* lifted panel */
+    --surface-2:   0 0% 12%;         /* inputs / chips */
+    --surface-3:   0 0% 16%;         /* hover */
+    --jet:         0 0% 0%;          /* pure black accent strip (top bar, modal headers) */
+    --jet-2:       0 0% 3%;
+
+    /* Lines */
+    --line:        0 0% 16%;
+    --line-soft:   0 0% 12%;
+    --line-strong: 0 0% 22%;
+
+    /* Ink */
+    --ink:         0 0% 96%;         /* near-white body text */
+    --ink-2:       0 0% 76%;
+    --ink-3:       0 0% 56%;
+    --ink-4:       0 0% 40%;
+    --ink-on-jet:  0 0% 96%;         /* same; preserved for component API */
+
+    /* Gold accent — LP-style warm gold, slightly brighter for dark surface contrast */
+    --gold:        38 65% 58%;
+    --gold-2:      38 70% 64%;
+    --gold-deep:   38 60% 48%;
+    --gold-soft:   38 65% 14%;       /* dark tinted background */
+    --gold-ink:    0 0% 8%;          /* dark text on gold */
+
+    /* Semantic */
+    --good:        152 55% 36%;
+    --warn:        32  90% 42%;
+    --bad:         0   72% 47%;
+
+    /* shadcn aliases */
+    --background:           var(--page);
+    --foreground:           var(--ink);
+    --card:                 var(--surface);
+    --card-foreground:      var(--ink);
+    --popover:              var(--surface);
+    --popover-foreground:   var(--ink);
+    --primary:              var(--gold);
+    --primary-foreground:   var(--gold-ink);
+    --secondary:            var(--surface-2);
+    --secondary-foreground: var(--ink);
+    --muted:                var(--surface-2);
+    --muted-foreground:     var(--ink-3);
+    --accent:               var(--surface-2);
+    --accent-foreground:    var(--ink);
+    --destructive:          var(--bad);
+    --destructive-foreground: 0 0% 100%;
+    --success:              var(--good);
+    --success-foreground:   0 0% 100%;
+    --warning:              var(--warn);
+    --warning-foreground:   0 0% 0%;
+    --border:               var(--line);
+    --input:                var(--line);
+    --ring:                 var(--gold);
+    --radius:               0;       /* ← sharp corners, everywhere */
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--line));
+    outline-color: hsl(var(--gold));
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--line-strong)) transparent;
+  }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--line-strong));
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--ink-3));
+    background-clip: padding-box;
+    border: 3px solid transparent;
+  }
+  ::selection {
+    background: hsl(var(--gold) / 0.35);
+    color: hsl(var(--ink));
+  }
+  /* Keyboard hints, etc. */
+  kbd { color: hsl(var(--ink-2)); }
+
+  html, body, #root { height: 100%; }
+  html { font-size: 15px; }
+  body {
+    margin: 0;
+    background: hsl(var(--page));
+    color: hsl(var(--ink));
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system,
+      "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    line-height: 1.5;
+    letter-spacing: -0.005em;
+  }
+
+  .tabular-nums, code, kbd, samp { font-variant-numeric: tabular-nums; }
+  code { font-family: var(--font-mono); }
+  input, textarea { background-image: none; }
+}
+
+@theme inline {
+  --color-page:        hsl(var(--page));
+  --color-page-2:      hsl(var(--page-2));
+  --color-surface:     hsl(var(--surface));
+  --color-surface-2:   hsl(var(--surface-2));
+  --color-surface-3:   hsl(var(--surface-3));
+  --color-jet:         hsl(var(--jet));
+  --color-jet-2:       hsl(var(--jet-2));
+  --color-line:        hsl(var(--line));
+  --color-line-soft:   hsl(var(--line-soft));
+  --color-line-strong: hsl(var(--line-strong));
+  --color-ink:         hsl(var(--ink));
+  --color-ink-2:       hsl(var(--ink-2));
+  --color-ink-3:       hsl(var(--ink-3));
+  --color-ink-4:       hsl(var(--ink-4));
+  --color-ink-on-jet:  hsl(var(--ink-on-jet));
+  --color-gold:        hsl(var(--gold));
+  --color-gold-2:      hsl(var(--gold-2));
+  --color-gold-deep:   hsl(var(--gold-deep));
+  --color-gold-soft:   hsl(var(--gold-soft));
+  --color-gold-ink:    hsl(var(--gold-ink));
+  --color-good:        hsl(var(--good));
+  --color-warn:        hsl(var(--warn));
+  --color-bad:         hsl(var(--bad));
+
+  --color-background:           hsl(var(--background));
+  --color-foreground:           hsl(var(--foreground));
+  --color-card:                 hsl(var(--card));
+  --color-card-foreground:      hsl(var(--card-foreground));
+  --color-popover:              hsl(var(--popover));
+  --color-popover-foreground:   hsl(var(--popover-foreground));
+  --color-primary:              hsl(var(--primary));
+  --color-primary-foreground:   hsl(var(--primary-foreground));
+  --color-secondary:            hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted:                hsl(var(--muted));
+  --color-muted-foreground:     hsl(var(--muted-foreground));
+  --color-accent:               hsl(var(--accent));
+  --color-accent-foreground:    hsl(var(--accent-foreground));
+  --color-destructive:          hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-success:              hsl(var(--success));
+  --color-success-foreground:   hsl(var(--success-foreground));
+  --color-warning:              hsl(var(--warning));
+  --color-warning-foreground:   hsl(var(--warning-foreground));
+  --color-border:               hsl(var(--border));
+  --color-input:                hsl(var(--input));
+  --color-ring:                 hsl(var(--ring));
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono",
+    "Roboto Mono", Menlo, Consolas, monospace;
+}
+
+@layer utilities {
+  /* Gold button — solid block, no gradient. Dark text on gold for contrast. */
+  .btn-gold {
+    background: hsl(var(--gold));
+    color: hsl(var(--gold-ink));
+    border: 1px solid hsl(var(--gold));
+  }
+  .btn-gold:hover {
+    background: hsl(var(--gold-2));
+    border-color: hsl(var(--gold-2));
+  }
+  .btn-gold:active {
+    background: hsl(var(--gold-deep));
+    border-color: hsl(var(--gold-deep));
+  }
+  .btn-gold:disabled {
+    background: hsl(var(--surface-2));
+    color: hsl(var(--ink-4));
+    border-color: hsl(var(--line));
+    cursor: not-allowed;
+  }
+
+  /* Square the world. Any explicit rounded-* utility wins; this just
+     ensures the radius variables resolve to 0 for the few primitives we
+     don't touch. */
+
+  /* Shimmer sweep — band is 40% of container width; values are tuned
+     so the band travels from fully off-screen left to fully off-screen
+     right exactly once per loop. Translate values are relative to the
+     band's own width: -100% = band fully past the left edge,
+     250% = band fully past the right edge (1/0.4 - 1 = 1.5 → 150%
+     of band width remaining after it reaches the right edge,
+     so 100% + 150% = 250%). */
+  @keyframes shimmer-sweep {
+    0%, 12%   { transform: translateX(-100%); }
+    88%, 100% { transform: translateX(250%); }
+  }
+  @keyframes skeleton-breathe {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.65; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
