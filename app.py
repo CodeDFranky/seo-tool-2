@@ -5,7 +5,7 @@ from rate_limit import (
     acquire_metadata,
     rate_limit,
 )
-from flask import Flask, Response, render_template, request, jsonify, send_file, stream_with_context
+from flask import Flask, Response, request, jsonify, send_file, stream_with_context
 from urllib.parse import urlparse
 import hashlib
 import io
@@ -448,11 +448,6 @@ def capture_thumbnail_cleanup():
     if os.path.isdir(token_dir):
         shutil.rmtree(token_dir, ignore_errors=True)
     return jsonify({"ok": True})
-
-
-@app.route("/", methods=["GET", "POST"])
-def index():
-    return render_template("index.html")
 
 
 if __name__ == "__main__":
