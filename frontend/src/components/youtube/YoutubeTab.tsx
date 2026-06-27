@@ -411,7 +411,7 @@ function YoutubeTabInner() {
   return (
     <TooltipProvider delayDuration={300}>
       <div className="h-full overflow-y-auto bg-page relative">
-        <div className="mx-auto max-w-7xl px-8 py-10">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 sm:py-10 pb-28">
           {/* Title row */}
           <header className="flex items-end justify-between mb-9">
             <div>
@@ -436,7 +436,8 @@ function YoutubeTabInner() {
                     <Popover.Content
                       sideOffset={8}
                       align="start"
-                      className="z-50 w-[340px] bg-jet border border-line-soft p-3.5 outline-none
+                      collisionPadding={12}
+                      className="z-50 w-[min(340px,calc(100vw-24px))] bg-jet border border-line-soft p-3.5 outline-none
                                  data-[state=open]:animate-in data-[state=closed]:animate-out
                                  data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0
                                  data-[side=bottom]:slide-in-from-top-1"
@@ -680,7 +681,7 @@ function YoutubeTabInner() {
               onClick={handleLoadMore}
               disabled={loadingMore}
               aria-label={loadingMore ? "Loading more videos" : "Load more videos"}
-              className="fixed bottom-6 right-6 z-30 inline-flex items-center gap-2 h-11 px-5
+              className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-30 inline-flex items-center gap-2 h-11 px-4 sm:px-5
                          text-[14px] font-semibold text-white btn-gold
                          shadow-[0_8px_24px_-6px_rgba(0,0,0,0.6)]
                          disabled:opacity-85 disabled:cursor-wait"

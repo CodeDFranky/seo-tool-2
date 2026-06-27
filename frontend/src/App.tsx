@@ -110,27 +110,33 @@ function AppShell() {
         aria-hidden={!onApp}
         className="absolute inset-0 z-10 flex flex-col"
       >
-        {/* Top bar — pure black with gold accent */}
-        <header className="shrink-0 h-14 flex items-center px-6 bg-jet text-ink-on-jet">
+        {/* Top bar — pure black with gold accent. Three flow regions
+            (brand · tabs · meta) collapse independently below sm: the
+            wordmark hides first so the centered tabs have room, then the
+            version stamp hides if there's still not enough space. */}
+        <header className="shrink-0 h-14 flex items-center gap-3 px-3 sm:px-6 bg-jet text-ink-on-jet">
           <button
             type="button"
             onClick={exitToLanding}
             aria-label="Back to landing"
             title="Back to landing"
-            className="group flex items-center gap-2.5 -mx-2 px-2 py-1.5 transition-colors
+            className="group shrink-0 flex items-center gap-2.5 -mx-2 px-2 py-1.5 transition-colors
                        hover:bg-white/[0.04]"
           >
             <div className="h-7 w-7 overflow-hidden border border-white/15
                             transition-[border-color] group-hover:border-gold/60">
               <img src={dfrLogo} alt="" className="h-full w-full object-cover" />
             </div>
-            <span className="text-[12.5px] font-medium tracking-[0.14em] uppercase
+            <span className="hidden sm:inline text-[12.5px] font-medium tracking-[0.14em] uppercase
                              transition-colors group-hover:text-gold">
               DFR Toolkit
             </span>
           </button>
 
-          <nav className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1" role="tablist">
+          <nav
+            className="flex-1 flex items-center justify-center gap-1 min-w-0"
+            role="tablist"
+          >
             {TOOLS.map((t) => {
               const active = tool === t.id
               return (
@@ -140,7 +146,7 @@ function AppShell() {
                   aria-selected={active}
                   onClick={() => setTool(t.id)}
                   className={
-                    "relative h-9 px-4 text-[14px] font-semibold tracking-[-0.003em] transition-colors " +
+                    "relative h-9 px-3 sm:px-4 text-[14px] font-semibold tracking-[-0.003em] transition-colors " +
                     (active ? "text-ink-on-jet" : "text-white/55 hover:text-white/85")
                   }
                 >
@@ -157,7 +163,7 @@ function AppShell() {
             })}
           </nav>
 
-          <div className="ml-auto text-[11.5px] font-mono text-white/40">
+          <div className="hidden sm:block shrink-0 text-[11.5px] font-mono text-white/40">
             v1.0
           </div>
         </header>

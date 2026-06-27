@@ -306,7 +306,7 @@ export default function GenerateThumbnailModal({
           >
             <div className="bg-surface w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
               {/* Header */}
-              <div className="flex items-center justify-between gap-3 px-5 py-3.5 shrink-0 bg-jet text-ink-on-jet">
+              <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3.5 shrink-0 bg-jet text-ink-on-jet">
                 <div className="flex flex-col min-w-0">
                   <Dialog.Title className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gold">
                     Generate thumbnail
@@ -319,14 +319,14 @@ export default function GenerateThumbnailModal({
                 </div>
                 <button
                   onClick={handleClose}
-                  className="p-1.5 text-white/65 hover:text-white transition-colors shrink-0"
+                  className="inline-flex items-center justify-center h-9 w-9 -mr-2 text-white/65 hover:text-white transition-colors shrink-0"
                   aria-label="Close"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
 
-              <div className="flex flex-col gap-4 p-5 overflow-y-auto bg-page">
+              <div className="flex flex-col gap-4 p-3 sm:p-5 overflow-y-auto bg-page">
                 <div className="relative bg-black overflow-hidden aspect-video w-full">
                   <video
                     ref={videoRef}
@@ -475,7 +475,7 @@ export default function GenerateThumbnailModal({
                             {manualCaps.length}
                           </span>
                         </p>
-                        <div className="grid grid-cols-4 gap-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                           {manualCaps.map((c) => (
                             <CaptureTile
                               key={c.id}
@@ -494,7 +494,7 @@ export default function GenerateThumbnailModal({
                             {autoCaps.length}
                           </span>
                         </p>
-                        <div className="grid grid-cols-4 gap-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                           {autoCaps.map((c) => (
                             <CaptureTile
                               key={c.id}

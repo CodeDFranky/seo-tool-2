@@ -230,7 +230,7 @@ export function SeoTab() {
 
   return (
     <div className="h-full overflow-y-auto bg-page">
-      <div className="mx-auto max-w-5xl px-8 py-10">
+      <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
         {/* Title row */}
         <header className="flex items-end justify-between mb-9">
           <div>
@@ -253,7 +253,7 @@ export function SeoTab() {
 
         {/* Inputs panel — bg-surface step alone is the boundary */}
         <div className="bg-surface p-5 flex flex-col gap-5">
-          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_minmax(220px,280px)] gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_minmax(220px,280px)] gap-3">
             <Field label="Name" required>
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" />
             </Field>

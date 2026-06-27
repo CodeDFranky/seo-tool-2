@@ -5,6 +5,7 @@ import {
 import { AnimatePresence, motion } from "framer-motion"
 import { ChevronDown, Download, GripVertical, History, Trash2, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useMediaQuery } from "@/lib/useMediaQuery"
 import { idbClear, idbDelete, idbLoadAll, idbPut } from "./capture-idb"
 import { setSolidDragImage } from "@/lib/drag-image"
 
@@ -388,6 +389,10 @@ export function CaptureHistoryPanel() {
     useCaptureHistory()
   const hasAny = captures.length > 0
   const groups = useMemo(() => groupByVideo(captures), [captures])
+  // Above md the panel is an inline sibling that animates its width and
+  // pushes content; below md it floats over the page as a dismissible
+  // drawer so the main view keeps its full real estate.
+  const isDesktop = useMediaQuery("(min-width: 768px)")
 
   // Track which video groups are expanded. By default only the most
   // recent one (top of the list) is open so the panel stays uncluttered.
@@ -419,26 +424,59 @@ export function CaptureHistoryPanel() {
     return () => window.removeEventListener("keydown", onKey)
   }, [isPanelOpen, setPanelOpen])
 
+  // Animation shape differs by mode: width-animation pushes inline content
+  // out of the way on desktop; translate-x slides in over the page on
+  // mobile (paired with a tappable backdrop below).
+  const motionProps = isDesktop
+    ? {
+        initial: { width: 0 },
+        animate: { width: PANEL_WIDTH },
+        exit:    { width: 0 },
+      }
+    : {
+        initial: { x: "100%" },
+        animate: { x: 0 },
+        exit:    { x: "100%" },
+      }
+
   return (
     <AnimatePresence initial={false}>
       {isPanelOpen && (
-        <motion.aside
-          key="capture-panel"
-          initial={{ width: 0 }}
-          animate={{ width: PANEL_WIDTH }}
-          exit={{ width: 0 }}
-          transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-          className={cn(
-            // No splitter border — the bg-surface step against the main
-            // area's bg-page (4% step on near-black) is the boundary.
-            "shrink-0 overflow-hidden bg-surface",
-            "flex"
+        <>
+          {!isDesktop && (
+            <motion.div
+              key="capture-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              onClick={() => setPanelOpen(false)}
+              aria-hidden
+              className="fixed inset-0 z-30 bg-black/60"
+            />
           )}
-          aria-label="Capture history"
-        >
+          <motion.aside
+            key="capture-panel"
+            {...motionProps}
+            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+            className={cn(
+              "bg-surface flex",
+              isDesktop
+                // Inline sibling: width animation, no splitter (the
+                // bg-surface step against bg-page is the boundary).
+                ? "shrink-0 overflow-hidden"
+                // Floating drawer: cap width to the viewport so 320px
+                // screens still get a peek of the page edge.
+                : "fixed inset-y-0 right-0 z-40 w-[min(440px,90vw)] shadow-[0_0_40px_-10px_rgba(0,0,0,0.8)]"
+            )}
+            aria-label="Capture history"
+          >
           <div
-            style={{ width: PANEL_WIDTH }}
-            className="h-full flex flex-col shrink-0"
+            style={isDesktop ? { width: PANEL_WIDTH } : undefined}
+            className={cn(
+              "h-full flex flex-col shrink-0",
+              !isDesktop && "w-full",
+            )}
           >
           {/* Header */}
           <header className="flex items-center justify-between gap-3 px-4 h-11 bg-jet shrink-0">
@@ -455,7 +493,7 @@ export function CaptureHistoryPanel() {
                 <button
                   onClick={clearAll}
                   aria-label="Clear all captures"
-                  className="inline-flex items-center justify-center h-7 w-7 text-ink-4 hover:text-bad transition-colors"
+                  className="inline-flex items-center justify-center h-9 w-9 text-ink-4 hover:text-bad transition-colors"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -463,7 +501,7 @@ export function CaptureHistoryPanel() {
               <button
                 onClick={() => setPanelOpen(false)}
                 aria-label="Close history"
-                className="inline-flex items-center justify-center h-7 w-7 text-ink-3 hover:text-ink transition-colors"
+                className="inline-flex items-center justify-center h-9 w-9 text-ink-3 hover:text-ink transition-colors"
                 title="Close"
               >
                 <X className="h-3.5 w-3.5" />
@@ -605,7 +643,8 @@ export function CaptureHistoryPanel() {
             </footer>
           )}
           </div>
-        </motion.aside>
+          </motion.aside>
+        </>
       )}
     </AnimatePresence>
   )
