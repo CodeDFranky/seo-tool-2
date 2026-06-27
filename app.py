@@ -464,10 +464,13 @@ def capture_thumbnail_start():
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
+        # NOTE: don't set Connection: keep-alive here. It's a hop-by-hop
+        # header (PEP 3333) and waitress refuses to forward it from a WSGI
+        # app, returning 500 on every SSE stream. Servers handle keep-alive
+        # themselves; the client gets it anyway over HTTP/1.1.
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
         },
     )
 
