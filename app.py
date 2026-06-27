@@ -1,6 +1,8 @@
 from helpers import detect_platform, get_video_ids, get_video_info
 from cache import URL_IDS_CACHE, VIDEO_INFO_CACHE
+from logs import fmt_dur, fmt_size, log
 from rate_limit import (
+    CAPTURE_SEMAPHORE,
     acquire_capture,
     acquire_metadata,
     rate_limit,
@@ -134,11 +136,14 @@ def fetch_ids():
     start = offset + 1
     end = offset + limit
     cache_key = f"{hashlib.md5(url.encode()).hexdigest()}:{start}:{end}"
+    cached = cache_key in URL_IDS_CACHE
 
-    if cache_key not in URL_IDS_CACHE:
+    if not cached:
         # Serialize playlist/channel expansion across the whole server.
+        t0 = time.time()
         with acquire_metadata(timeout=10.0) as lock:
             if not lock.acquired:
+                log.warning("[ids] busy url=%s offset=%d limit=%d", url, offset, limit)
                 resp = jsonify({"error": "Server is busy. Try again in a few seconds."})
                 resp.status_code = 429
                 resp.headers["Retry-After"] = "5"
@@ -146,9 +151,16 @@ def fetch_ids():
             try:
                 URL_IDS_CACHE[cache_key] = get_video_ids(url, start=start, end=end)
             except Exception as e:
+                log.error("[ids] fail url=%s offset=%d err=%s", url, offset, e)
                 return jsonify({"error": str(e)}), 400
+        log.info(
+            "[ids] fetched url=%s platform=%s offset=%d limit=%d returned=%d dur=%s",
+            url, platform, offset, limit, len(URL_IDS_CACHE[cache_key]), fmt_dur(time.time() - t0),
+        )
 
     ids = URL_IDS_CACHE[cache_key]
+    if cached:
+        log.debug("[ids] hit url=%s offset=%d returned=%d", url, offset, len(ids))
     # If yt-dlp returned a full page, assume there's more to fetch.
     has_more = len(ids) >= limit
     return jsonify({
@@ -160,7 +172,7 @@ def fetch_ids():
 
 
 @app.route("/api/fetch_video_info", methods=["POST"])
-@rate_limit(per_minute=30)
+@rate_limit(per_minute=120)
 def fetch_video_info():
     body = request.get_json(silent=True) or {}
     video_id = body.get("video_id")
@@ -177,8 +189,10 @@ def fetch_video_info():
         return jsonify(VIDEO_INFO_CACHE[cache_key])
 
     # Cap concurrent metadata extractions to 3 server-wide.
+    t0 = time.time()
     with acquire_metadata(timeout=8.0) as lock:
         if not lock.acquired:
+            log.warning("[meta] busy id=%s platform=%s", video_id, platform)
             resp = jsonify({"error": "Server is busy. Try again."})
             resp.status_code = 429
             resp.headers["Retry-After"] = "3"
@@ -186,8 +200,10 @@ def fetch_video_info():
         try:
             video_data = get_video_info(video_id, platform)
             VIDEO_INFO_CACHE[cache_key] = video_data
+            log.info("[meta] miss id=%s platform=%s dur=%s", video_id, platform, fmt_dur(time.time() - t0))
             return jsonify(video_data)
         except Exception as e:
+            log.error("[meta] fail id=%s platform=%s err=%s", video_id, platform, e)
             return jsonify({"error": str(e)}), 400
 
 
@@ -258,7 +274,7 @@ def proxy_thumbnail():
 
 
 @app.route("/api/capture_thumbnail", methods=["POST"])
-@rate_limit(per_minute=4, per_hour=30)
+@rate_limit(per_minute=10, per_hour=60)
 def capture_thumbnail_start():
     """Download a video with yt-dlp, streaming progress via SSE.
     Returns a token at the end that can be used to stream the cached video."""
@@ -273,12 +289,13 @@ def capture_thumbnail_start():
     if platform == "vimeo" and not VIMEO_ID_RE.match(video_id):
         return jsonify({"error": "Invalid Vimeo ID"}), 400
 
-    # Refuse if another capture is already running. Heavy downloads are
-    # the most likely trigger for an IP ban — serialize hard.
-    capture_lock = acquire_capture(timeout=0.0)
-    if not capture_lock.__enter__().acquired:
+    # Fast pre-check (racy by design): if every capture slot is taken,
+    # return 429 without even setting up the SSE response. Real safety
+    # comes from the acquire inside the generator below.
+    if CAPTURE_SEMAPHORE._value <= 0:
+        log.warning("[capture] busy id=%s platform=%s (all slots taken)", video_id, platform)
         resp = jsonify({
-            "error": "Another video is already being captured. Try again in a moment.",
+            "error": "All capture slots are busy. Try again in a moment.",
         })
         resp.status_code = 429
         resp.headers["Retry-After"] = "30"
@@ -298,34 +315,55 @@ def capture_thumbnail_start():
     )
 
     def generate():
-        proc = subprocess.Popen(
-            [
-                YTDLP_BIN,
-                "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720][ext=mp4]/best[height<=720]/best",
-                "--merge-output-format", "mp4",
-                "--no-playlist",
-                "--newline",
-                # Polite-use flags per yt-dlp Extractors wiki guidance.
-                "--sleep-requests", "2",
-                "--sleep-interval", "5",
-                "--max-sleep-interval", "10",
-                "--limit-rate", "5M",
-                "--concurrent-fragments", "1",
-                "-o", output_template,
-                video_url,
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+        # Acquire the semaphore *inside* the generator so the try/finally
+        # below is guaranteed to release it. The previous version held the
+        # lock from the route handler, which leaked the slot if anything
+        # threw before the generator started iterating (Popen failing, the
+        # client aborting the request mid-handshake, dev-reload mid-flight).
+        capture_lock = acquire_capture(timeout=0.0)
+        capture_lock.__enter__()
+        if not capture_lock.acquired:
+            log.warning("[capture] busy id=%s (slot acquire failed)", video_id)
+            shutil.rmtree(token_dir, ignore_errors=True)
+            yield f"event: error\ndata: {json.dumps({'error': 'Server busy. Try again.'})}\n\n"
+            return
+
+        t0 = time.time()
+        last_progress = -1.0
+        last_logged_milestone = -1
+        log.info(
+            "[capture] start id=%s platform=%s token=%s slots_left=%d",
+            video_id, platform, token[:8], CAPTURE_SEMAPHORE._value,
         )
 
-        progress_re = re.compile(r"\[download\]\s+([\d.]+)%")
-        last_progress = -1.0
-
+        proc = None
         try:
             try:
+                proc = subprocess.Popen(
+                    [
+                        YTDLP_BIN,
+                        "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720][ext=mp4]/best[height<=720]/best",
+                        "--merge-output-format", "mp4",
+                        "--no-playlist",
+                        "--newline",
+                        # Polite-use flags per yt-dlp Extractors wiki guidance.
+                        "--sleep-requests", "2",
+                        "--sleep-interval", "5",
+                        "--max-sleep-interval", "10",
+                        "--limit-rate", "5M",
+                        "--concurrent-fragments", "1",
+                        "-o", output_template,
+                        video_url,
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+                )
+
+                progress_re = re.compile(r"\[download\]\s+([\d.]+)%")
+
                 for raw in proc.stdout:
                     line = raw.rstrip()
                     m = progress_re.search(line)
@@ -334,27 +372,52 @@ def capture_thumbnail_start():
                         if pct - last_progress >= 0.5 or pct >= 100.0:
                             last_progress = pct
                             yield f"data: {json.dumps({'progress': pct})}\n\n"
+                        # Log milestone progress (25/50/75/100) without
+                        # spamming — useful for spotting hangs vs slow links.
+                        milestone = int(pct) // 25
+                        if milestone > last_logged_milestone and milestone >= 1:
+                            last_logged_milestone = milestone
+                            log.debug(
+                                "[capture] progress id=%s %.0f%% elapsed=%s",
+                                video_id, pct, fmt_dur(time.time() - t0),
+                            )
                 ret = proc.wait()
 
                 if ret == 0:
                     files = [f for f in os.listdir(token_dir) if f.startswith("video.")]
                     if files:
+                        size = os.path.getsize(os.path.join(token_dir, files[0]))
+                        log.info(
+                            "[capture] done id=%s token=%s dur=%s size=%s",
+                            video_id, token[:8], fmt_dur(time.time() - t0), fmt_size(size),
+                        )
                         yield f"event: done\ndata: {json.dumps({'token': token})}\n\n"
                         return
+                    log.error("[capture] fail id=%s no_output_file dur=%s", video_id, fmt_dur(time.time() - t0))
                     shutil.rmtree(token_dir, ignore_errors=True)
                     yield f"event: error\ndata: {json.dumps({'error': 'Video file not found after download'})}\n\n"
                 else:
+                    log.error(
+                        "[capture] fail id=%s exit_code=%d dur=%s at=%.0f%%",
+                        video_id, ret, fmt_dur(time.time() - t0), max(0.0, last_progress),
+                    )
                     shutil.rmtree(token_dir, ignore_errors=True)
                     yield f"event: error\ndata: {json.dumps({'error': f'yt-dlp exited with code {ret}'})}\n\n"
             except GeneratorExit:
                 # Client disconnected — kill the download and clean up
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
+                log.info(
+                    "[capture] cancel id=%s at=%.0f%% dur=%s (client disconnect)",
+                    video_id, max(0.0, last_progress), fmt_dur(time.time() - t0),
+                )
+                if proc is not None:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
                 shutil.rmtree(token_dir, ignore_errors=True)
                 raise
             except Exception as e:
+                log.exception("[capture] crash id=%s err=%s", video_id, e)
                 shutil.rmtree(token_dir, ignore_errors=True)
                 yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
         finally:

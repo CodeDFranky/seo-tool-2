@@ -100,7 +100,13 @@ export function StateSelect({ value, onChange, isOther, onIsOtherChange }: State
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -4 }}
                   transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                  className="w-[280px] border border-line-soft bg-page overflow-hidden"
+                  // Match the trigger's measured width so the dropdown
+                  // sits flush with the State input. Radix sets this var
+                  // on `Popover.Content`; the cascade reaches us here.
+                  // `min-width` guards against tiny triggers where the
+                  // search-states row would otherwise wrap awkwardly.
+                  style={{ width: "var(--radix-popover-trigger-width)" }}
+                  className="min-w-[240px] border border-line-soft bg-page overflow-hidden"
                 >
                   <div className="flex items-center gap-2 px-3 py-2 bg-surface-2">
                     <Search className="h-3.5 w-3.5 text-ink-4 shrink-0" />

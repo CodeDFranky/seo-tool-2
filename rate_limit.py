@@ -19,6 +19,8 @@ from typing import Optional
 
 from flask import jsonify, request
 
+from logs import log, short_ip
+
 
 class _SlidingWindowLimiter:
     def __init__(self) -> None:
@@ -85,12 +87,16 @@ def rate_limit(
             tightest_reset: Optional[int] = None
             tightest_limit: Optional[int] = None
 
-            for max_req, window, _label in windows:
+            for max_req, window, label in windows:
                 key = f"{bucket_name}:{window}:{ip}"
                 allowed, retry_after, remaining, reset_at = _limiter.check(
                     key, max_req, window
                 )
                 if not allowed:
+                    log.warning(
+                        "[ratelimit] %s ip=%s bucket=%s cap=%d retry=%ds",
+                        bucket_name, short_ip(ip), label, max_req, retry_after,
+                    )
                     resp = jsonify(
                         {
                             "error": "Rate limit exceeded. Please slow down.",
@@ -150,10 +156,12 @@ class _SemaphoreGuard:
             self._sem.release()
 
 
-# yt-dlp serialization. The research target: at most 1 concurrent
-# heavy download, and 3 concurrent metadata extractions.
-CAPTURE_SEMAPHORE = threading.Semaphore(1)
-METADATA_SEMAPHORE = threading.Semaphore(3)
+# yt-dlp serialization. Captures (heavy video downloads) cap at 3 in
+# parallel so the user can open Generate on multiple visible cards
+# without queuing; metadata extractions are light (info-only) so we
+# let 8 fly at once to fill big batches fast.
+CAPTURE_SEMAPHORE = threading.Semaphore(3)
+METADATA_SEMAPHORE = threading.Semaphore(8)
 
 
 def acquire_capture(timeout: float = 0.0) -> _SemaphoreGuard:

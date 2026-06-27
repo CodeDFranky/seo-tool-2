@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { motion, AnimatePresence } from "framer-motion"
+import { motion } from "framer-motion"
 import dfrLogo from "@/assets/dfr.png"
 import { Toaster } from "@/components/ui/sonner"
 import { SeoTab } from "@/components/seo/SeoTab"
@@ -74,103 +74,133 @@ function AppShell() {
     setView("landing")
   }, [])
 
+  const onLanding = view === "landing"
+  const onApp = view === "app"
+
   return (
-    <div className="h-screen w-screen overflow-hidden bg-page text-ink">
-      <AnimatePresence mode="wait">
-        {view === "landing" ? (
-          <motion.div
-            key="landing"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, scale: 1.015 }}
-            transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-            className="h-full w-full"
+    // Both the landing and the app are kept mounted at all times so tool
+    // sessions survive view changes. Crossfade is driven by opacity on
+    // stacked absolute layers rather than mount/unmount via AnimatePresence.
+    // Same pattern applies one level deeper for SEO vs Vlog.
+    <div className="h-screen w-screen overflow-hidden bg-page text-ink relative">
+      {/* ── Landing layer ───────────────────────────────────────────── */}
+      <motion.div
+        initial={false}
+        animate={{
+          opacity: onLanding ? 1 : 0,
+          scale:   onLanding ? 1 : 1.015,
+        }}
+        transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+        style={{ pointerEvents: onLanding ? "auto" : "none" }}
+        aria-hidden={!onLanding}
+        className="absolute inset-0 z-20"
+      >
+        <LandingPage onEnter={enterApp} />
+      </motion.div>
+
+      {/* ── App layer (always mounted) ──────────────────────────────── */}
+      <motion.div
+        initial={false}
+        animate={{
+          opacity: onApp ? 1 : 0,
+          scale:   onApp ? 1 : 0.985,
+        }}
+        transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+        style={{ pointerEvents: onApp ? "auto" : "none" }}
+        aria-hidden={!onApp}
+        className="absolute inset-0 z-10 flex flex-col"
+      >
+        {/* Top bar — pure black with gold accent */}
+        <header className="shrink-0 h-14 flex items-center px-6 bg-jet text-ink-on-jet">
+          <button
+            type="button"
+            onClick={exitToLanding}
+            aria-label="Back to landing"
+            title="Back to landing"
+            className="group flex items-center gap-2.5 -mx-2 px-2 py-1.5 transition-colors
+                       hover:bg-white/[0.04]"
           >
-            <LandingPage onEnter={enterApp} />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="app"
-            initial={{ opacity: 0, scale: 0.985 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-            className="h-full w-full flex flex-col"
-          >
-            {/* Top bar — pure black with gold accent */}
-            <header className="shrink-0 h-14 flex items-center px-6 bg-jet text-ink-on-jet">
-              <button
-                type="button"
-                onClick={exitToLanding}
-                aria-label="Back to landing"
-                title="Back to landing"
-                className="group flex items-center gap-2.5 -mx-2 px-2 py-1.5 transition-colors
-                           hover:bg-white/[0.04]"
-              >
-                <div className="h-7 w-7 overflow-hidden border border-white/15
-                                transition-[border-color] group-hover:border-gold/60">
-                  <img src={dfrLogo} alt="" className="h-full w-full object-cover" />
-                </div>
-                <span className="text-[12.5px] font-medium tracking-[0.14em] uppercase
-                                 transition-colors group-hover:text-gold">
-                  DFR Toolkit
-                </span>
-              </button>
-
-              <nav className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1" role="tablist">
-                {TOOLS.map((t) => {
-                  const active = tool === t.id
-                  return (
-                    <button
-                      key={t.id}
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() => setTool(t.id)}
-                      className={
-                        "relative h-9 px-4 text-[14px] font-semibold tracking-[-0.003em] transition-colors " +
-                        (active ? "text-ink-on-jet" : "text-white/55 hover:text-white/85")
-                      }
-                    >
-                      {t.label}
-                      {active && (
-                        <motion.span
-                          layoutId="tab-underline"
-                          className="absolute left-3 right-3 bottom-0 h-[2px] bg-gold"
-                          transition={{ type: "spring", stiffness: 500, damping: 36 }}
-                        />
-                      )}
-                    </button>
-                  )
-                })}
-              </nav>
-
-              <div className="ml-auto text-[11.5px] font-mono text-white/40">
-                v1.0
-              </div>
-            </header>
-
-            {/* Workspace + inline side panel */}
-            <div className="flex-1 min-h-0 flex overflow-hidden">
-              <main className="flex-1 min-w-0 overflow-hidden">
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={tool}
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -4 }}
-                    transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                    className="h-full"
-                  >
-                    {tool === "seo" ? <SeoTab /> : <YoutubeTab />}
-                  </motion.div>
-                </AnimatePresence>
-              </main>
-
-              {tool === "vlog" && <CaptureHistoryPanel />}
+            <div className="h-7 w-7 overflow-hidden border border-white/15
+                            transition-[border-color] group-hover:border-gold/60">
+              <img src={dfrLogo} alt="" className="h-full w-full object-cover" />
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <span className="text-[12.5px] font-medium tracking-[0.14em] uppercase
+                             transition-colors group-hover:text-gold">
+              DFR Toolkit
+            </span>
+          </button>
+
+          <nav className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1" role="tablist">
+            {TOOLS.map((t) => {
+              const active = tool === t.id
+              return (
+                <button
+                  key={t.id}
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setTool(t.id)}
+                  className={
+                    "relative h-9 px-4 text-[14px] font-semibold tracking-[-0.003em] transition-colors " +
+                    (active ? "text-ink-on-jet" : "text-white/55 hover:text-white/85")
+                  }
+                >
+                  {t.label}
+                  {active && (
+                    <motion.span
+                      layoutId="tab-underline"
+                      className="absolute left-3 right-3 bottom-0 h-[2px] bg-gold"
+                      transition={{ type: "spring", stiffness: 500, damping: 36 }}
+                    />
+                  )}
+                </button>
+              )
+            })}
+          </nav>
+
+          <div className="ml-auto text-[11.5px] font-mono text-white/40">
+            v1.0
+          </div>
+        </header>
+
+        {/* Workspace + inline side panel */}
+        <div className="flex-1 min-h-0 flex overflow-hidden">
+          <main className="flex-1 min-w-0 overflow-hidden relative">
+            {/* Both tabs always mounted on stacked layers so tool
+                sessions (form state, fetched videos, in-flight captures,
+                scroll position) survive switching. Crossfade is opacity
+                + a small slide — same feel as the previous AnimatePresence
+                version, but without unmounting either tab. */}
+            <motion.div
+              initial={false}
+              animate={{
+                opacity: tool === "seo" ? 1 : 0,
+                y:       tool === "seo" ? 0 : 4,
+              }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              style={{ pointerEvents: tool === "seo" ? "auto" : "none" }}
+              aria-hidden={tool !== "seo"}
+              className="absolute inset-0"
+            >
+              <SeoTab />
+            </motion.div>
+            <motion.div
+              initial={false}
+              animate={{
+                opacity: tool === "vlog" ? 1 : 0,
+                y:       tool === "vlog" ? 0 : 4,
+              }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              style={{ pointerEvents: tool === "vlog" ? "auto" : "none" }}
+              aria-hidden={tool !== "vlog"}
+              className="absolute inset-0"
+            >
+              <YoutubeTab />
+            </motion.div>
+          </main>
+
+          {tool === "vlog" && <CaptureHistoryPanel />}
+        </div>
+      </motion.div>
 
       <Toaster />
     </div>

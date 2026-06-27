@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useReducer, useRef, useState } from "react"
 import { toast } from "sonner"
 import { AnimatePresence, motion } from "framer-motion"
 import * as Popover from "@radix-ui/react-popover"
@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   XCircle,
   Info,
+  ChevronDown,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -21,6 +22,15 @@ import { Progress } from "@/components/ui/progress"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { VideoGrid } from "./VideoGrid"
 import { CaptureHistoryButton } from "./capture-history"
+import {
+  ActiveCapturesProvider,
+  useActiveCapturesActions,
+  useActiveCapturesModal,
+} from "./active-captures"
+
+// Code-split: the modal's video player + scrubbing logic only mounts when
+// a user actually opens the frame picker on a ready capture.
+const GenerateThumbnailModal = lazy(() => import("./GenerateThumbnailModal"))
 import {
   fetchIds,
   fetchVideoInfo,
@@ -60,6 +70,12 @@ interface YtState {
   progress: number
   hasMoreIds: boolean
   error: string | null
+  /** True only while the FIRST batch (after START) is being fetched and
+   *  populated. Goes false the moment the initial batch is fully
+   *  rendered. Used to drive the input / Fetch-button disabled state and
+   *  the progress banner — neither should reappear during load-more
+   *  waves; the floating button has its own spinner for that. */
+  initialPending: boolean
 }
 type YtAction =
   | { type: "START" }
@@ -77,12 +93,13 @@ const initial: YtState = {
   progress: 0,
   hasMoreIds: false,
   error: null,
+  initialPending: false,
 }
 
 function reducer(state: YtState, action: YtAction): YtState {
   switch (action.type) {
     case "START":
-      return { ...initial, phase: "fetching-ids", progress: 10 }
+      return { ...initial, phase: "fetching-ids", progress: 10, initialPending: true }
     case "SET_IDS": {
       const count = Math.min(action.batchSize, action.ids.length)
       return {
@@ -111,17 +128,28 @@ function reducer(state: YtState, action: YtAction): YtState {
       const videos = [...state.videos]
       videos[action.slotIndex] = action.video
       const loaded = videos.filter(Boolean).length
-      const moreSlots = state.loadedCount < state.allIds.length
-      const phase = loaded === videos.length && !moreSlots && !state.hasMoreIds ? "done" : "loading-info"
+      const allCurrentSlotsLoaded = loaded === videos.length
+      const everythingLoaded =
+        allCurrentSlotsLoaded &&
+        state.loadedCount >= state.allIds.length &&
+        !state.hasMoreIds
+      const phase = allCurrentSlotsLoaded ? "done" : "loading-info"
       return {
         ...state,
         phase,
         videos,
-        progress: Math.min(30 + (loaded / videos.length) * 70, phase === "done" ? 100 : 95),
+        progress: Math.min(
+          30 + (loaded / videos.length) * 70,
+          everythingLoaded ? 100 : 95,
+        ),
+        // Initial batch is "done" the moment its slots are full. Subsequent
+        // load-more waves never re-enter the initial-pending state, so the
+        // input / banner stay calm.
+        initialPending: state.initialPending && !allCurrentSlotsLoaded,
       }
     }
     case "ERROR":
-      return { ...state, phase: "error", error: action.message, progress: 0 }
+      return { ...state, phase: "error", error: action.message, progress: 0, initialPending: false }
     default:
       return state
   }
@@ -135,42 +163,82 @@ const BATCH_SIZE = 12
 const IDS_PAGE_SIZE = 100
 
 export function YoutubeTab() {
+  return (
+    <ActiveCapturesProvider>
+      <YoutubeTabInner />
+      <ActiveCapturesModalHost />
+    </ActiveCapturesProvider>
+  )
+}
+
+/** Mounted once per Vlog tab session. Watches the registry's modal slot and
+ *  renders the lazy-loaded GenerateThumbnailModal when one becomes ready. */
+function ActiveCapturesModalHost() {
+  const slot = useActiveCapturesModal()
+  const actions = useActiveCapturesActions()
+  if (!slot || slot.phase !== "ready" || !slot.token) return null
+  return (
+    <Suspense fallback={null}>
+      <GenerateThumbnailModal
+        videoId={slot.videoId}
+        platform={slot.platform}
+        title={slot.title}
+        token={slot.token}
+        open={true}
+        onClose={actions.closeModal}
+      />
+    </Suspense>
+  )
+}
+
+function YoutubeTabInner() {
   const [state, dispatch] = useReducer(reducer, initial)
   const [urlInput, setUrlInput] = useState("")
   const [platform, setPlatform] = useState<Platform>("youtube")
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [loadingMore, setLoadingMore] = useState(false)
-  const sentinelRef = useRef<HTMLDivElement>(null)
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
   // The canonical source URL is held in a ref so the pagination loop can
   // re-call fetchIds without coupling to React state timing.
   const sourceUrlRef = useRef<string | null>(null)
 
-  // Keep the latest handleLoadMore in a ref so the IntersectionObserver
-  // effect doesn't have to re-subscribe on every state change.
-  const handleLoadMoreRef = useRef<() => void>(() => {})
-
-  // In-flight metadata concurrency. The server caps at 3 — matching here
+  // In-flight metadata concurrency. The server caps at 8 — matching here
   // means no requests need to retry on the client side.
-  const METADATA_CONCURRENCY = 3
-  // Refuse to start a new batch while another is in flight. Without this,
-  // rapid scrolling can fire handleLoadMore multiple times and we end up
-  // pushing more than 3 requests onto the server in parallel.
+  const METADATA_CONCURRENCY = 8
+  // Synchronous mutex around the metadata fetch wave itself. Prevents
+  // overlapping fetch passes from pushing more than 8 requests onto the
+  // server in parallel.
   const batchInFlightRef = useRef(false)
+  // Separate synchronous mutex around handleLoadMore's *setup* phase
+  // (page-fetch + dispatch + slot reservation). Has to be distinct from
+  // batchInFlightRef so we can hand off cleanly to loadVideoInfoBatch
+  // without a moment of "no one holds the lock."
+  const loadMoreInFlightRef = useRef(false)
+  // Monotonic session ID bumped on every new Fetch submit. In-flight
+  // metadata workers capture the session at start and discard any
+  // `VIDEO_LOADED` dispatch whose session no longer matches — otherwise
+  // a stale load-more wave from the previous URL would write its videos
+  // into the new URL's empty slots and produce a corrupted grid.
+  const sessionIdRef = useRef(0)
 
   const loadVideoInfoBatch = useCallback(
     async (ids: string[], slotOffset: number, plat: Platform) => {
       if (batchInFlightRef.current) return
       batchInFlightRef.current = true
+      // Capture the session at wave start. Every dispatch checks against
+      // this — if the user kicks off a new Fetch, sessionIdRef bumps and
+      // any of *this* wave's lingering responses are dropped on the floor.
+      const session = sessionIdRef.current
       let rateLimited = false
       try {
       await runWithConcurrency(ids, METADATA_CONCURRENCY, async (id, i) => {
         try {
           const video = await fetchVideoInfo(id, plat)
+          if (sessionIdRef.current !== session) return
           if (!video.error) {
             dispatch({ type: "VIDEO_LOADED", video, slotIndex: slotOffset + i })
           }
         } catch (err) {
+          if (sessionIdRef.current !== session) return
           if (err instanceof RateLimitError) {
             if (!rateLimited) {
               rateLimited = true
@@ -200,6 +268,13 @@ export function YoutubeTab() {
       })
       return
     }
+    // Bump the session BEFORE clearing the mutexes so any in-flight worker
+    // already past its session capture will fail the next check and exit
+    // without dispatching into the new state.
+    sessionIdRef.current += 1
+    batchInFlightRef.current = false
+    loadMoreInFlightRef.current = false
+    setLoadingMore(false)
     dispatch({ type: "START" })
     setSelectedIds(new Set())
     setPlatform(resolved.platform)
@@ -226,9 +301,12 @@ export function YoutubeTab() {
   }
 
   const handleLoadMore = useCallback(async () => {
-    if (loadingMore) return
-    // Nothing left at all → nothing to do.
+    // SYNCHRONOUS mutex against double-click / rapid presses. State guard
+    // alone isn't enough because `loadingMore` only commits on the next
+    // render; two clicks in the same tick would both pass.
+    if (loadMoreInFlightRef.current) return
     if (state.loadedCount >= state.allIds.length && !state.hasMoreIds) return
+    loadMoreInFlightRef.current = true
     setLoadingMore(true)
     try {
       let availableIds = state.allIds
@@ -264,30 +342,10 @@ export function YoutubeTab() {
         toast.error(String(err))
       }
     } finally {
+      loadMoreInFlightRef.current = false
       setLoadingMore(false)
     }
-  }, [loadingMore, state.allIds, state.loadedCount, state.hasMoreIds, loadVideoInfoBatch, platform])
-
-  // Keep the ref in sync so the observer always calls the freshest closure.
-  handleLoadMoreRef.current = handleLoadMore
-
-  // Intersection observer drives lazy loading. Deps are scoped to page
-  // boundaries (allIds.length changes once per ID-page fetch, not per
-  // video metadata load) so the observer doesn't re-subscribe 12 times
-  // during a single batch.
-  useEffect(() => {
-    const target = sentinelRef.current
-    if (!target) return
-    const root = scrollContainerRef.current ?? null
-    const obs = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) handleLoadMoreRef.current()
-      },
-      { root, rootMargin: "600px 0px 600px 0px", threshold: 0 }
-    )
-    obs.observe(target)
-    return () => obs.disconnect()
-  }, [state.allIds.length, state.hasMoreIds])
+  }, [state.allIds, state.loadedCount, state.hasMoreIds, loadVideoInfoBatch, platform])
 
   // Stable identity so React.memo on VideoCard isn't defeated.
   const handleSelectChange = useCallback((id: string, checked: boolean) => {
@@ -333,7 +391,11 @@ export function YoutubeTab() {
   // "Has more" now spans both unfetched IDs we already know about AND
   // additional pages we haven't asked the backend for yet.
   const hasMore = state.loadedCount < state.allIds.length || state.hasMoreIds
-  const isWorking = state.phase === "fetching-ids" || state.phase === "loading-info"
+  // `isWorking` drives the input lock, the Fetch-button spinner, and the
+  // progress banner. Tied to `initialPending` (not `phase === "loading-info"`)
+  // so it goes false the instant the first batch's slots are filled —
+  // load-more waves don't re-lock the input.
+  const isWorking = state.phase === "fetching-ids" || state.initialPending
   const resolved = urlInput.trim() ? resolveSupportedUrl(urlInput) : null
   const resolvedUrl = resolved?.url ?? null
   const urlIsInvalid = urlInput.trim().length > 0 && resolved === null
@@ -348,7 +410,7 @@ export function YoutubeTab() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div ref={scrollContainerRef} className="h-full overflow-y-auto bg-page">
+      <div className="h-full overflow-y-auto bg-page relative">
         <div className="mx-auto max-w-7xl px-8 py-10">
           {/* Title row */}
           <header className="flex items-end justify-between mb-9">
@@ -595,20 +657,6 @@ export function YoutubeTab() {
               />
             )}
 
-            {hasMore && (
-              <div
-                ref={sentinelRef}
-                aria-hidden
-                className="h-12 flex items-center justify-center mt-4 text-[13px] font-medium text-ink-3"
-              >
-                {loadingMore && (
-                  <span className="inline-flex items-center gap-2">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Loading more
-                  </span>
-                )}
-              </div>
-            )}
             {!hasMore && state.videos.length > 0 && state.phase === "done" && (
               <p className="text-center mt-7 mb-2 text-[12.5px] text-ink-4">
                 · End of list ·
@@ -616,6 +664,41 @@ export function YoutubeTab() {
             )}
           </div>
         </div>
+
+        {/* Floating Load more button — pinned to the viewport bottom-right
+            so the user doesn't have to scroll to the bottom of the grid
+            to advance. Shows only when there's more to fetch; the disabled
+            spinning state covers the in-flight phase. */}
+        <AnimatePresence>
+          {hasMore && state.videos.length > 0 && (
+            <motion.button
+              key="load-more"
+              initial={{ opacity: 0, y: 12, scale: 0.94 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.94 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              onClick={handleLoadMore}
+              disabled={loadingMore}
+              aria-label={loadingMore ? "Loading more videos" : "Load more videos"}
+              className="fixed bottom-6 right-6 z-30 inline-flex items-center gap-2 h-11 px-5
+                         text-[14px] font-semibold text-white btn-gold
+                         shadow-[0_8px_24px_-6px_rgba(0,0,0,0.6)]
+                         disabled:opacity-85 disabled:cursor-wait"
+            >
+              {loadingMore ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading
+                </>
+              ) : (
+                <>
+                  Load more
+                  <ChevronDown className="h-4 w-4" />
+                </>
+              )}
+            </motion.button>
+          )}
+        </AnimatePresence>
       </div>
     </TooltipProvider>
   )

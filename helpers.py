@@ -1,14 +1,14 @@
 import yt_dlp
 
 
-# Polite defaults applied to every metadata extraction call.
-# Per the yt-dlp Extractors wiki: sleep between data extraction requests
-# is the single biggest factor in avoiding 429s from YouTube. 1–2s is the
-# community floor; we use 2s.
+# Metadata extraction is light (info-only, no media bytes). The polite
+# floor matters most for sustained bulk scraping; a single local user
+# pulling a few batches at a time can run with no inter-request pause
+# and still stay well below YouTube's per-IP envelope. The heavy-media
+# capture path keeps its sleeps separately in app.py.
 _METADATA_OPTS = {
     "quiet": True,
     "no_warnings": True,
-    "sleep_interval_requests": 2,
 }
 
 

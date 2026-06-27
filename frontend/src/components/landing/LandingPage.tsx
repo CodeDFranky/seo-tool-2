@@ -34,7 +34,7 @@ const entryVariants: Variants = {
 
 export function LandingPage({ onEnter }: LandingPageProps) {
   return (
-    <div className="h-screen w-screen bg-jet text-ink-on-jet overflow-hidden">
+    <div className="h-full w-full bg-jet text-ink-on-jet overflow-hidden">
       {/* Full-bleed video frame: relative parent for the video, overlays,
           and the glass nav panel. Edge to edge — no frame, no nesting. */}
       <div className="relative h-full w-full overflow-hidden bg-jet">

@@ -1,6 +1,6 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Copy, Download, Play, ExternalLink, Check, GripVertical, Wand2 } from "lucide-react"
+import { Copy, Download, Play, ExternalLink, Check, GripVertical, Wand2, X, Loader2, AlertCircle, Clock } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 
 import { Skeleton } from "@/components/ui/skeleton"
@@ -9,9 +9,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { fetchThumbnailFile, proxyThumbnailUrl, type VideoInfo } from "@/lib/api"
 import { setSolidDragImage } from "@/lib/drag-image"
 import { cn } from "@/lib/utils"
-// Code-split the heavy thumbnail-generator (video player + capture logic).
-// Only loads when a user actually clicks Generate on a card.
-const GenerateThumbnailModal = lazy(() => import("./GenerateThumbnailModal"))
+import {
+  useActiveCapture,
+  useActiveCapturesActions,
+} from "./active-captures"
 
 export const VideoCardSkeleton = memo(function VideoCardSkeleton() {
   return (
@@ -38,7 +39,6 @@ export const VideoCardSkeleton = memo(function VideoCardSkeleton() {
 })
 
 type BlobCache = Map<string, File>
-type TokenCache = Map<string, string>
 
 interface VideoCardProps {
   video: VideoInfo
@@ -47,20 +47,23 @@ interface VideoCardProps {
   onSelectChange: (id: string, checked: boolean) => void
   isRecent?: boolean
   blobCache: BlobCache
-  tokenCache: TokenCache
 }
 
 function VideoCardImpl({
-  video, index, isSelected, onSelectChange, isRecent = false, blobCache, tokenCache,
+  video, index, isSelected, onSelectChange, isRecent = false, blobCache,
 }: VideoCardProps) {
   const [previewOpen, setPreviewOpen] = useState(false)
-  const [generateOpen, setGenerateOpen] = useState(false)
   const [copiedTitle, setCopiedTitle] = useState(false)
   const [copiedEmbed, setCopiedEmbed] = useState(false)
   const [thumbReady, setThumbReady] = useState(blobCache.has(video.video_id))
   const [thumbFailed, setThumbFailed] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
   const filename = `v${index + 1}_${video.video_id}.jpg`
+
+  // Subscribe to *this* video's capture slot only. Returns undefined when
+  // the user hasn't clicked Generate yet, or has cancelled.
+  const captureSlot = useActiveCapture(video.video_id)
+  const captureActions = useActiveCapturesActions()
 
   useEffect(() => {
     if (blobCache.has(video.video_id)) { setThumbReady(true); return }
@@ -236,21 +239,13 @@ function VideoCardImpl({
           </h4>
 
           <div className="flex gap-1.5">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => setGenerateOpen(true)}
-                  aria-label="Generate custom thumbnail"
-                  className="inline-flex items-center justify-center gap-1 h-7 px-2.5 text-[12.5px] font-semibold btn-gold"
-                >
-                  <Wand2 className="h-3 w-3" />
-                  <span className="hidden sm:inline">Generate</span>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                Capture a frame from the video as a custom thumbnail.
-              </TooltipContent>
-            </Tooltip>
+            <CaptureButton
+              videoId={video.video_id}
+              title={video.title}
+              platform={video.platform}
+              slot={captureSlot}
+              actions={captureActions}
+            />
             <button
               onClick={copyTitle}
               className="flex-1 inline-flex items-center justify-center gap-1 h-7 px-2.5 bg-surface-2 text-[12.5px] font-medium text-ink-2 hover:text-ink hover:bg-surface-3 transition-colors"
@@ -286,22 +281,6 @@ function VideoCardImpl({
           </div>
         </div>
       </motion.article>
-
-      {/* Conditional mount so the lazy chunk + heavy player only
-          materialize once the user actually clicks Generate. */}
-      {generateOpen && (
-        <Suspense fallback={null}>
-          <GenerateThumbnailModal
-            videoId={video.video_id}
-            platform={video.platform}
-            title={video.title}
-            open={generateOpen}
-            initialToken={tokenCache.get(video.video_id)}
-            onClose={() => setGenerateOpen(false)}
-            onTokenAcquired={(t) => tokenCache.set(video.video_id, t)}
-          />
-        </Suspense>
-      )}
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-3xl p-0 overflow-hidden bg-surface !rounded-none">
@@ -346,7 +325,6 @@ interface VideoGridProps {
 
 export function VideoGrid({ videos, selectedIds, onSelectChange, recentCount = 0 }: VideoGridProps) {
   const blobCacheRef = useRef<BlobCache>(new Map())
-  const tokenCacheRef = useRef<TokenCache>(new Map())
 
   const getIsRecent = useCallback(
     (i: number) => i >= videos.length - recentCount,
@@ -365,12 +343,151 @@ export function VideoGrid({ videos, selectedIds, onSelectChange, recentCount = 0
             onSelectChange={onSelectChange}
             isRecent={getIsRecent(i)}
             blobCache={blobCacheRef.current}
-            tokenCache={tokenCacheRef.current}
           />
         ) : (
           <VideoCardSkeleton key={`skeleton-${i}`} />
         )
       )}
     </div>
+  )
+}
+
+/**
+ * Generate button with four states driven by the active-captures registry:
+ *   idle (no slot)       → "Generate" — starts a background download
+ *   downloading          → thin progress bar + percentage + cancel on click
+ *   ready                → "Open" with a subtle gold dot — opens the modal
+ *   error                → "Retry" with the failure tooltip
+ *
+ * Stays the same width across states so the card layout doesn't reflow when
+ * a download finishes mid-scroll.
+ */
+interface CaptureButtonProps {
+  videoId: string
+  title: string
+  platform: VideoInfo["platform"]
+  slot: ReturnType<typeof useActiveCapture>
+  actions: ReturnType<typeof useActiveCapturesActions>
+}
+
+/**
+ * Layout note: every variant uses `flex-1 h-7 px-2.5` so the button keeps
+ * the same width as the Title/Embed siblings and the card layout never
+ * reflows when the state changes mid-scroll. The only thing that changes
+ * across states is colour and the inner content.
+ *
+ * The idle / downloading / queued / error states share the surface-2 base
+ * with the other two buttons. The `ready` state alone pops to gold — that
+ * colour change IS the readiness signal, so we don't need an extra dot
+ * or animation on top.
+ */
+const NEUTRAL_BTN = "flex-1 inline-flex items-center justify-center gap-1 h-7 px-2.5 bg-surface-2 text-[12.5px] font-medium text-ink-2 hover:text-ink hover:bg-surface-3 transition-colors"
+const GOLD_BTN    = "flex-1 inline-flex items-center justify-center gap-1 h-7 px-2.5 text-[12.5px] font-semibold btn-gold"
+const ERROR_BTN   = "flex-1 inline-flex items-center justify-center gap-1 h-7 px-2.5 text-[12.5px] font-medium bg-bad/15 text-bad hover:bg-bad/25 transition-colors"
+
+function CaptureButton({ videoId, title, platform, slot, actions }: CaptureButtonProps) {
+  if (!slot) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => actions.start({ videoId, title, platform })}
+            aria-label="Generate custom thumbnail"
+            className={NEUTRAL_BTN}
+          >
+            <Wand2 className="h-3 w-3" />
+            <span className="hidden sm:inline">Generate</span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>
+          Capture a frame from the video as a custom thumbnail.
+        </TooltipContent>
+      </Tooltip>
+    )
+  }
+
+  if (slot.phase === "downloading") {
+    const pct = Math.round(slot.progress)
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => actions.cancel(videoId)}
+            aria-label={`Cancel download (${pct}%)`}
+            className={`relative overflow-hidden group ${NEUTRAL_BTN}`}
+          >
+            {/* Subtle progress fill behind the label. surface-3 against the
+                surface-2 button gives a 4% step — visible but doesn't
+                compete with the gold "ready" state. */}
+            <span
+              aria-hidden
+              className="absolute inset-y-0 left-0 bg-surface-3 transition-[width] duration-200"
+              style={{ width: `${pct}%` }}
+            />
+            <span className="relative inline-flex items-center gap-1">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              <span className="font-mono tabular-nums">{pct}%</span>
+            </span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Downloading… click to cancel.</TooltipContent>
+      </Tooltip>
+    )
+  }
+
+  if (slot.phase === "queued") {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => actions.cancel(videoId)}
+            aria-label="Cancel queued download"
+            className={NEUTRAL_BTN}
+          >
+            <Clock className="h-3 w-3" />
+            <span className="hidden sm:inline">Queued</span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Waiting for a slot · click to cancel.</TooltipContent>
+      </Tooltip>
+    )
+  }
+
+  if (slot.phase === "ready") {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => actions.openModal(videoId)}
+            aria-label="Open thumbnail studio"
+            className={GOLD_BTN}
+          >
+            <Wand2 className="h-3 w-3" />
+            <span className="hidden sm:inline">Open</span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Video ready · open the frame picker.</TooltipContent>
+      </Tooltip>
+    )
+  }
+
+  // error
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={() => {
+            actions.cancel(videoId)
+            actions.start({ videoId, title, platform })
+          }}
+          aria-label="Retry download"
+          className={ERROR_BTN}
+        >
+          <AlertCircle className="h-3 w-3" />
+          <span className="hidden sm:inline">Retry</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{slot.error || "Download failed"}</TooltipContent>
+    </Tooltip>
   )
 }
