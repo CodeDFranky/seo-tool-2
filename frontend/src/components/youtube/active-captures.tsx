@@ -14,12 +14,13 @@
  */
 
 import {
-  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
+  createContext, useCallback, useContext, useEffect, useMemo, useState,
   useSyncExternalStore,
   type ReactNode,
 } from "react"
 import { toast } from "sonner"
 import type { Platform } from "@/lib/api"
+import { apiUrl } from "@/lib/backend"
 
 export type CapturePhase = "queued" | "downloading" | "ready" | "error"
 
@@ -151,7 +152,7 @@ class CaptureStore {
     // both paths are recovered the same way (wait, retry).
     let parkedAsQueued = false
     try {
-      const res = await fetch("/api/capture_thumbnail", {
+      const res = await fetch(apiUrl("/api/capture_thumbnail"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: input.videoId, platform: input.platform }),

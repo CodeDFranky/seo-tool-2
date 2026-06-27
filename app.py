@@ -17,12 +17,45 @@ import re
 import requests
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
 import zipfile
 
 app = Flask(__name__)
+
+
+@app.after_request
+def _cors(resp):
+    """Allow the Tauri webview (tauri://localhost / http://tauri.localhost)
+    to call the sidecar across origins. Backend binds 127.0.0.1 only, so
+    a wildcard origin is safe — there is no network-reachable surface.
+    Includes the headers needed for canvas.drawImage() on the captured
+    video element without tainting the canvas."""
+    resp.headers.setdefault("Access-Control-Allow-Origin", "*")
+    resp.headers.setdefault("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+    resp.headers.setdefault("Access-Control-Allow-Headers", "Content-Type, Range")
+    resp.headers.setdefault("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges, Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset")
+    return resp
+
+
+@app.route("/", defaults={"path": ""}, methods=["OPTIONS"])
+@app.route("/<path:path>", methods=["OPTIONS"])
+def _cors_preflight(path):  # noqa: ARG001
+    return ("", 204)
+
+
+def _bundle_dir() -> str:
+    """Where to look for bundled binaries (yt-dlp.exe) at runtime.
+
+    When frozen by PyInstaller, datafiles/binaries live under sys._MEIPASS
+    (one-file mode) or beside sys.executable (one-dir). Falls back to the
+    project root in dev so the venv-installed yt-dlp keeps working.
+    """
+    if getattr(sys, "frozen", False):
+        return getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    return os.path.dirname(__file__)
 
 YOUTUBE_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,20}$")
 VIMEO_ID_RE   = re.compile(r"^\d{1,12}$")
@@ -69,9 +102,13 @@ def _vimeo_thumbnail(video_id: str):
 CAPTURE_CACHE_BASE = os.path.join(tempfile.gettempdir(), "seo-tool-2-capture")
 os.makedirs(CAPTURE_CACHE_BASE, exist_ok=True)
 
-# yt-dlp binary lives in the project venv on Windows / unix-style elsewhere
+# yt-dlp binary lives in the PyInstaller bundle when frozen, otherwise
+# the project venv on dev machines.
 def _find_ytdlp():
+    base = _bundle_dir()
     candidates = [
+        os.path.join(base, "yt-dlp.exe"),
+        os.path.join(base, "yt-dlp"),
         os.path.join(os.path.dirname(__file__), "venv", "Scripts", "yt-dlp.exe"),
         os.path.join(os.path.dirname(__file__), "venv", "Scripts", "yt-dlp"),
         os.path.join(os.path.dirname(__file__), "venv", "bin", "yt-dlp"),

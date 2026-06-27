@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Copy, Download, Play, ExternalLink, Check, GripVertical, Wand2, X, Loader2, AlertCircle, Clock } from "lucide-react"
+import { Copy, Download, Play, ExternalLink, Check, GripVertical, Wand2, Loader2, AlertCircle, Clock } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 
 import { Skeleton } from "@/components/ui/skeleton"

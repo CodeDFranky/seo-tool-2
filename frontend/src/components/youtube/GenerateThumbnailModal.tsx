@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { ShortcutHint } from "@/components/ui/shortcut-hint"
 import { AUTO_PREFETCH_COUNT, CaptureTile, useCaptureHistory } from "@/components/youtube/capture-history"
 import type { Platform } from "@/lib/api"
+import { apiUrl } from "@/lib/backend"
 
 interface Props {
   videoId: string
@@ -95,7 +96,7 @@ export default function GenerateThumbnailModal({
     }
 
     const off = document.createElement("video")
-    off.src = `/api/capture_thumbnail?token=${encodeURIComponent(token)}`
+    off.src = apiUrl(`/api/capture_thumbnail?token=${encodeURIComponent(token)}`)
     off.muted = true
     off.preload = "auto"
     off.crossOrigin = "anonymous"
@@ -329,7 +330,7 @@ export default function GenerateThumbnailModal({
                 <div className="relative bg-black overflow-hidden aspect-video w-full">
                   <video
                     ref={videoRef}
-                    src={`/api/capture_thumbnail?token=${encodeURIComponent(token)}`}
+                    src={apiUrl(`/api/capture_thumbnail?token=${encodeURIComponent(token)}`)}
                     className="w-full h-full object-contain"
                     preload="auto"
                     muted

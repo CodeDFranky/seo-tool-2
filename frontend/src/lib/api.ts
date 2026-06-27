@@ -1,4 +1,5 @@
 import type { Platform } from "./videoUrl"
+import { apiUrl } from "./backend"
 
 export type { Platform }
 
@@ -61,7 +62,7 @@ export async function fetchIds(
   options: { offset?: number; limit?: number } = {}
 ): Promise<FetchIdsResponse> {
   const { offset = 0, limit = 100 } = options
-  const res = await fetch("/api/fetch_ids", {
+  const res = await fetch(apiUrl("/api/fetch_ids"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, offset, limit }),
@@ -73,7 +74,7 @@ export async function fetchVideoInfo(
   video_id: string,
   platform: Platform
 ): Promise<FetchVideoInfoResponse> {
-  const res = await fetch("/api/fetch_video_info", {
+  const res = await fetch(apiUrl("/api/fetch_video_info"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ video_id, platform }),
@@ -82,7 +83,7 @@ export async function fetchVideoInfo(
 }
 
 export async function downloadThumbnails(items: DownloadItem[]): Promise<Blob> {
-  const res = await fetch("/download-thumbnails", {
+  const res = await fetch(apiUrl("/download-thumbnails"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ items }),
@@ -92,7 +93,7 @@ export async function downloadThumbnails(items: DownloadItem[]): Promise<Blob> {
 }
 
 export function proxyThumbnailUrl(videoId: string, platform: Platform): string {
-  return `/api/proxy_thumbnail?id=${encodeURIComponent(videoId)}&platform=${platform}`
+  return apiUrl(`/api/proxy_thumbnail?id=${encodeURIComponent(videoId)}&platform=${platform}`)
 }
 
 export async function fetchThumbnailFile(

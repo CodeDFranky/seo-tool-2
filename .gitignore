@@ -55,3 +55,12 @@ seo-tool-2-capture/
 
 # NOTE: frontend/ has its own .gitignore covering node_modules,
 # dist, *.local — no need to duplicate here.
+/updater-keys/
+/dist/
+/build/
+/frontend/src-tauri/binaries/
+/frontend/src-tauri/target/
+/frontend/src-tauri/gen/
+
+# ── Local tooling ────────────────────────────────────────
+/.claude/
