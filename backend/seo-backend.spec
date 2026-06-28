@@ -6,10 +6,10 @@ Produces a single-file `seo-backend.exe` that embeds:
   - the waitress WSGI server
   - the venv's yt-dlp.exe (placed beside the main script at runtime via _MEIPASS)
 
-Build:
-    python -m PyInstaller --noconfirm seo-backend.spec
+Build (from project root):
+    python -m PyInstaller --noconfirm backend/seo-backend.spec
 
-Output:
+Output (relative to invocation CWD, i.e. project root):
     dist/seo-backend.exe
 """
 
@@ -18,7 +18,8 @@ from PyInstaller.utils.hooks import collect_submodules
 
 
 HERE = os.path.dirname(os.path.abspath(SPEC))  # noqa: F821 (SPEC injected by PyInstaller)
-YTDLP_EXE = os.path.join(HERE, "venv", "Scripts", "yt-dlp.exe")
+PROJECT_ROOT = os.path.normpath(os.path.join(HERE, ".."))
+YTDLP_EXE = os.path.join(PROJECT_ROOT, "venv", "Scripts", "yt-dlp.exe")
 if not os.path.isfile(YTDLP_EXE):
     raise SystemExit(
         f"yt-dlp.exe not found at {YTDLP_EXE!r}. "

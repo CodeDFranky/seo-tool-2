@@ -1,0 +1,17 @@
+#!/bin/sh
+# Canonical pre-commit hook for DFR Toolkit. Symlink/copy into .git/hooks/.
+#
+# Runs:
+#   1. check-version-sync.ps1 (HARD fail on version skew across the three files)
+#   2. check-doc-drift.ps1    (SOFT warning when docs likely went stale)
+#
+# Install with:
+#   cp scripts/hooks/pre-commit .git/hooks/pre-commit
+#   chmod +x .git/hooks/pre-commit
+
+set -e
+
+ROOT="$(git rev-parse --show-toplevel)"
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "$ROOT/scripts/check-version-sync.ps1" || exit $?
+powershell -NoProfile -ExecutionPolicy Bypass -File "$ROOT/scripts/check-doc-drift.ps1"

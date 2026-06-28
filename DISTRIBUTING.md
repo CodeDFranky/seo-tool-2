@@ -31,7 +31,7 @@ This is the right answer for almost everyone. It's free, it powers the in-app au
 #    frontend/package.json                  -> "version": "0.2.0"
 
 # 2. Build the installer (see README.md or RELEASING.md)
-.\venv\Scripts\python.exe -m PyInstaller --noconfirm --clean seo-backend.spec
+.\venv\Scripts\python.exe -m PyInstaller --noconfirm --clean backend\seo-backend.spec
 Copy-Item .\dist\seo-backend.exe .\frontend\src-tauri\binaries\seo-backend-x86_64-pc-windows-msvc.exe -Force
 cd frontend
 $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content ..\updater-keys\dfr-toolkit -Raw

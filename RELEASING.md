@@ -26,7 +26,7 @@ From the repo root:
 #    - frontend/package.json                (version, optional)
 
 # 2. Rebuild the Python sidecar
-.\venv\Scripts\python.exe -m PyInstaller --noconfirm --clean seo-backend.spec
+.\venv\Scripts\python.exe -m PyInstaller --noconfirm --clean backend\seo-backend.spec
 Copy-Item .\dist\seo-backend.exe `
   .\frontend\src-tauri\binaries\seo-backend-x86_64-pc-windows-msvc.exe -Force
 
