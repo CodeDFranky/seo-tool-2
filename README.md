@@ -1,60 +1,23 @@
 # DFR Toolkit
 
-Personal workbench for real-estate marketing: SEO title generator + a YouTube/Vimeo vlog library with custom-thumbnail capture. Ships as a single Windows installer.
+A small desktop app for the parts of real-estate marketing that aren't building.
 
-## Stack
+Two tools in one window:
 
-- **Frontend** — React 19 + Vite + Tailwind 4 (`frontend/`)
-- **Backend** — Flask + yt-dlp + waitress (`backend/`, bundled as `seo-backend.exe`)
-- **Desktop shell** — Tauri 2 (Rust + system WebView2) (`frontend/src-tauri/`)
-- **Auto-updates** — Tauri updater plugin, signed manifest on GitHub Releases
+- **SEO title generator** — generates listing-friendly title variants for an agent: name, city, state plus a few toggles (solo / team, abbreviations, character-count meter). Filter the list, click a title to copy.
+- **Vlog library** — paste a YouTube or Vimeo URL (video, playlist, channel, or user). The app fetches the videos, shows metadata + thumbnails, lets you select and batch-download in a ZIP, or hit *Generate* on any card to download the video locally and capture a custom frame as a thumbnail. Drag any thumbnail straight out of the window onto your desktop or another app.
 
-## Develop
+Runs locally on Windows. No accounts, no servers, no telemetry.
 
-Prerequisites: Python 3.12+ with `venv`, Node 20+, Rust toolchain (rustup), Visual Studio Build Tools (Windows C++ workload).
+## Install
 
-```powershell
-# One-time setup
-python -m venv venv
-.\venv\Scripts\pip install -r backend\requirements.txt
-cd frontend ; npm install
-```
+1. Download the latest installer from [Releases](https://github.com/CodeDFranky/seo-tool-2/releases/latest).
+2. Double-click `DFR.Toolkit_*_x64-setup.exe`.
+3. Windows SmartScreen will warn (the installer isn't code-signed by a paid CA). Click **More info** → **Run anyway**.
+4. Launch from the Start menu.
 
-```powershell
-# Run the desktop app with hot-reload (Vite HMR + Tauri rebuild on Rust change)
-.\start.bat
-```
+Updates install themselves the next time you open the app.
 
-## Release
+## What's running under the hood
 
-Don't run the build commands by hand — use the script:
-
-```powershell
-.\scripts\release.ps1 0.1.1            # cuts and publishes
-.\scripts\release.ps1 0.2.0 -DryRun    # validates + builds, skips push/publish
-```
-
-See [CLAUDE.md](./CLAUDE.md) for what the script does and the conventions it enforces, and [DISTRIBUTING.md](./DISTRIBUTING.md) for how end-users actually install.
-
-## Layout
-
-```
-.
-├── backend/                # Python Flask app + PyInstaller spec
-│   ├── app.py              # routes
-│   ├── helpers.py          # yt-dlp metadata helpers
-│   ├── rate_limit.py       # per-IP sliding-window + global semaphores
-│   ├── cache.py            # in-memory caches
-│   ├── logs.py             # structured single-line logger
-│   ├── desktop.py          # entry point that picks a port and serves via waitress
-│   ├── seo-backend.spec    # PyInstaller spec
-│   └── requirements.txt
-├── frontend/
-│   ├── src/                # React UI
-│   └── src-tauri/          # Rust shell + Cargo + tauri.conf.json
-├── scripts/                # release.ps1 + pre-commit checks
-├── updater-keys/           # gitignored — minisign keypair for signed updates
-├── CLAUDE.md               # release + hook conventions
-├── RELEASING.md            # release/sign reference (manual fallback)
-└── DISTRIBUTING.md         # how friends actually install it
-```
+A Tauri desktop shell wraps a React UI and a small bundled Python service that calls yt-dlp for video work. Nothing leaves your machine except the API calls the underlying yt-dlp library makes to YouTube and Vimeo to fetch metadata and downloads.
