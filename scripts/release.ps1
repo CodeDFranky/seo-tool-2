@@ -46,10 +46,10 @@ Set-Location $ProjectRoot
 
 function Step($msg) { Write-Host "`n=== $msg ===" -ForegroundColor Cyan }
 function Info($msg) { Write-Host "  $msg" -ForegroundColor Gray }
-function Ok($msg)   { Write-Host "  ✓ $msg" -ForegroundColor Green }
-function Die($msg)  { Write-Host "  ✗ $msg" -ForegroundColor Red; exit 1 }
+function Ok($msg)   { Write-Host "  [ok] $msg" -ForegroundColor Green }
+function Die($msg)  { Write-Host "  [x] $msg" -ForegroundColor Red; exit 1 }
 
-# ── 1. Pre-flight checks ──────────────────────────────────────────────────────
+# -- 1. Pre-flight checks ------------------------------------------------------
 Step "Pre-flight"
 
 $status = git status --porcelain
@@ -68,12 +68,12 @@ if ($currentTag) {
     if ([version]$Version -le [version]$current) {
         Die "Version $Version is not higher than current $current. Updater ignores non-monotonic bumps."
     }
-    Info "Bumping $current → $Version"
+    Info "Bumping $current ->$Version"
 } else {
     Info "First release: $Version"
 }
 
-# ── 2. Bump version in three files ────────────────────────────────────────────
+# -- 2. Bump version in three files --------------------------------------------
 Step "Bump version files"
 
 $tauriConf = Join-Path $ProjectRoot "frontend\src-tauri\tauri.conf.json"
@@ -82,19 +82,19 @@ $pkgJson   = Join-Path $ProjectRoot "frontend\package.json"
 
 (Get-Content $tauriConf -Raw) -replace '("version"\s*:\s*)"[^"]+"', "`$1`"$Version`"" `
     | Set-Content $tauriConf -NoNewline -Encoding utf8
-Ok "tauri.conf.json → $Version"
+Ok "tauri.conf.json ->$Version"
 
 # Cargo.toml: only the [package] section's version, first match
 $cargoRaw = Get-Content $cargoToml -Raw
 $cargoNew = [regex]::Replace($cargoRaw, '(?ms)(\[package\].*?^version\s*=\s*)"[^"]+"', "`$1`"$Version`"", 1)
 Set-Content $cargoToml -Value $cargoNew -NoNewline -Encoding utf8
-Ok "Cargo.toml → $Version"
+Ok "Cargo.toml ->$Version"
 
 (Get-Content $pkgJson -Raw) -replace '("version"\s*:\s*)"[^"]+"', "`$1`"$Version`"" `
     | Set-Content $pkgJson -NoNewline -Encoding utf8
-Ok "package.json → $Version"
+Ok "package.json ->$Version"
 
-# ── 3. Build backend exe ──────────────────────────────────────────────────────
+# -- 3. Build backend exe ------------------------------------------------------
 Step "Build Python backend"
 
 Get-Process seo-backend -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -107,7 +107,7 @@ $sidecarTarget = "$ProjectRoot\frontend\src-tauri\binaries\seo-backend-x86_64-pc
 Copy-Item "$ProjectRoot\dist\seo-backend.exe" $sidecarTarget -Force
 Ok "Copied to Tauri sidecar path"
 
-# ── 4. Build signed Tauri installer ───────────────────────────────────────────
+# -- 4. Build signed Tauri installer -------------------------------------------
 Step "Build Tauri installer"
 
 if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
@@ -125,7 +125,7 @@ try {
 }
 Ok "Installer + signature built"
 
-# ── 5. Stage release files (URL-safe names) ───────────────────────────────────
+# -- 5. Stage release files (URL-safe names) -----------------------------------
 Step "Stage release files"
 
 $bundleDir   = "$ProjectRoot\frontend\src-tauri\target\release\bundle\nsis"
@@ -166,7 +166,7 @@ if ($DryRun) {
     exit 0
 }
 
-# ── 6. Commit, tag, push ──────────────────────────────────────────────────────
+# -- 6. Commit, tag, push ------------------------------------------------------
 Step "Commit + tag + push"
 
 git add frontend/src-tauri/tauri.conf.json frontend/src-tauri/Cargo.toml frontend/package.json frontend/src-tauri/Cargo.lock 2>$null
@@ -179,7 +179,7 @@ Ok "Tag v$Version created"
 git push origin master --tags
 Ok "Pushed to origin"
 
-# ── 7. Publish GitHub Release ─────────────────────────────────────────────────
+# -- 7. Publish GitHub Release -------------------------------------------------
 Step "Publish GitHub Release"
 
 gh release create "v$Version" `
@@ -195,6 +195,6 @@ gh release create "v$Version" `
 
 if ($LASTEXITCODE -ne 0) { Die "gh release create failed." }
 
-Write-Host "`n🎉 Released v$Version" -ForegroundColor Green
+Write-Host "`n[ok] Released v$Version" -ForegroundColor Green
 Write-Host "   https://github.com/CodeDFranky/seo-tool-2/releases/tag/v$Version" -ForegroundColor Green
 Write-Host "   Installed clients will pick this up on next launch.`n"
