@@ -80,19 +80,27 @@ $tauriConf = Join-Path $ProjectRoot "frontend\src-tauri\tauri.conf.json"
 $cargoToml = Join-Path $ProjectRoot "frontend\src-tauri\Cargo.toml"
 $pkgJson   = Join-Path $ProjectRoot "frontend\package.json"
 
-(Get-Content $tauriConf -Raw) -replace '("version"\s*:\s*)"[^"]+"', "`$1`"$Version`"" `
-    | Set-Content $tauriConf -NoNewline -Encoding utf8
-Ok "tauri.conf.json ->$Version"
+# Helper: write a file as UTF-8 WITHOUT a BOM. Windows PowerShell 5.1's
+# Set-Content -Encoding utf8 writes a BOM, which breaks JSON loaders
+# (Vite, jq, etc.) -- they don't tolerate the 0xEF 0xBB 0xBF prefix.
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+function Write-Utf8NoBom($path, $content) {
+    [System.IO.File]::WriteAllText($path, $content, $utf8NoBom)
+}
+
+$tauriRaw = [System.IO.File]::ReadAllText($tauriConf)
+Write-Utf8NoBom $tauriConf ($tauriRaw -replace '("version"\s*:\s*)"[^"]+"', "`$1`"$Version`"")
+Ok "tauri.conf.json -> $Version"
 
 # Cargo.toml: only the [package] section's version, first match
-$cargoRaw = Get-Content $cargoToml -Raw
+$cargoRaw = [System.IO.File]::ReadAllText($cargoToml)
 $cargoNew = [regex]::Replace($cargoRaw, '(?ms)(\[package\].*?^version\s*=\s*)"[^"]+"', "`$1`"$Version`"", 1)
-Set-Content $cargoToml -Value $cargoNew -NoNewline -Encoding utf8
-Ok "Cargo.toml ->$Version"
+Write-Utf8NoBom $cargoToml $cargoNew
+Ok "Cargo.toml -> $Version"
 
-(Get-Content $pkgJson -Raw) -replace '("version"\s*:\s*)"[^"]+"', "`$1`"$Version`"" `
-    | Set-Content $pkgJson -NoNewline -Encoding utf8
-Ok "package.json ->$Version"
+$pkgRaw = [System.IO.File]::ReadAllText($pkgJson)
+Write-Utf8NoBom $pkgJson ($pkgRaw -replace '("version"\s*:\s*)"[^"]+"', "`$1`"$Version`"")
+Ok "package.json -> $Version"
 
 # -- 3. Build backend exe ------------------------------------------------------
 Step "Build Python backend"
@@ -163,7 +171,7 @@ $manifest = [ordered]@{
         }
     }
 }
-$manifest | ConvertTo-Json -Depth 10 | Set-Content $stagedJson -Encoding utf8
+Write-Utf8NoBom $stagedJson ($manifest | ConvertTo-Json -Depth 10)
 Ok "latest.json generated"
 
 if ($DryRun) {
