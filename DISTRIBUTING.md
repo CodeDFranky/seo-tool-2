@@ -52,8 +52,11 @@ git push origin master --tags
 4. **Description**: 1–3 bullets of what changed
 5. **Attach files** — drag in:
    - `frontend/src-tauri/target/release/bundle/nsis/DFR Toolkit_0.2.0_x64-setup.exe`
-   - `frontend/src-tauri/target/release/bundle/nsis/DFR Toolkit_0.2.0_x64-setup.exe.sig`
    - A `latest.json` file you create (template below)
+
+   Don't upload the `.exe.sig` file — its contents go inline into
+   `latest.json` (see template below), and a separate `.sig` asset is
+   redundant clutter on the release page.
 6. **Set as the latest release**: ✅ checked
 7. **Publish**
 

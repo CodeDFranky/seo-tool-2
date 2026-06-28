@@ -186,7 +186,12 @@ gh release create "v$Version" `
     --title "v$Version" `
     --notes "DFR Toolkit v$Version.`n`nDownload and double-click the installer below. Windows SmartScreen will warn; click ""More info"" then ""Run anyway"" (unsigned binary; harmless).`n`nThe app will auto-update on its next launch for anyone already on an older version." `
     --latest `
-    $stagedExe $stagedSig $stagedJson
+    $stagedExe $stagedJson
+
+# Note: .sig is intentionally NOT uploaded as a release asset. The
+# minisign signature is already embedded inline in latest.json (the
+# updater reads it from there). Uploading a separate .sig file would be
+# redundant clutter on the GitHub Releases UI.
 
 if ($LASTEXITCODE -ne 0) { Die "gh release create failed." }
 
