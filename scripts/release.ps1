@@ -98,9 +98,16 @@ Ok "package.json ->$Version"
 Step "Build Python backend"
 
 Get-Process seo-backend -ErrorAction SilentlyContinue | Stop-Process -Force
-& "$ProjectRoot\venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean "$ProjectRoot\backend\seo-backend.spec" `
-    *> "$ProjectRoot\dist\pyinstaller-release.log"
-if ($LASTEXITCODE -ne 0) { Die "PyInstaller failed. See dist\pyinstaller-release.log." }
+# Start-Process (rather than `&` + `*>`) avoids the Windows-PowerShell
+# foot-gun where stderr lines from a native exe get wrapped as
+# ErrorRecord objects and trip $ErrorActionPreference = "Stop" -- even
+# though PyInstaller's INFO lines go to stderr and the exit code is 0.
+$proc = Start-Process -FilePath "$ProjectRoot\venv\Scripts\python.exe" `
+    -ArgumentList "-m", "PyInstaller", "--noconfirm", "--clean", "$ProjectRoot\backend\seo-backend.spec" `
+    -RedirectStandardOutput "$ProjectRoot\dist\pyinstaller-release.log" `
+    -RedirectStandardError  "$ProjectRoot\dist\pyinstaller-release.err" `
+    -NoNewWindow -Wait -PassThru
+if ($proc.ExitCode -ne 0) { Die "PyInstaller failed (exit $($proc.ExitCode)). See dist\pyinstaller-release.{log,err}." }
 Ok "seo-backend.exe rebuilt"
 
 $sidecarTarget = "$ProjectRoot\frontend\src-tauri\binaries\seo-backend-x86_64-pc-windows-msvc.exe"
@@ -116,13 +123,13 @@ if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
 }
 $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content "$ProjectRoot\updater-keys\dfr-toolkit" -Raw
 
-Push-Location "$ProjectRoot\frontend"
-try {
-    npx tauri build *> "$ProjectRoot\dist\tauri-release.log"
-    if ($LASTEXITCODE -ne 0) { Die "tauri build failed. See dist\tauri-release.log." }
-} finally {
-    Pop-Location
-}
+$proc = Start-Process -FilePath "npx" `
+    -ArgumentList "tauri", "build" `
+    -WorkingDirectory "$ProjectRoot\frontend" `
+    -RedirectStandardOutput "$ProjectRoot\dist\tauri-release.log" `
+    -RedirectStandardError  "$ProjectRoot\dist\tauri-release.err" `
+    -NoNewWindow -Wait -PassThru
+if ($proc.ExitCode -ne 0) { Die "tauri build failed (exit $($proc.ExitCode)). See dist\tauri-release.{log,err}." }
 Ok "Installer + signature built"
 
 # -- 5. Stage release files (URL-safe names) -----------------------------------
