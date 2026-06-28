@@ -204,7 +204,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
               transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1], delay: 1.35 }}
               className="flex items-end justify-between text-[11px] font-mono text-white/45"
             >
-              <span>v1.0</span>
+              <span>v{__APP_VERSION__}</span>
               <span className="tracking-[0.16em] uppercase">Local · single user</span>
             </motion.div>
           </motion.aside>

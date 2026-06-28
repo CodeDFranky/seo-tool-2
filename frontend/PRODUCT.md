@@ -9,7 +9,7 @@ A personal workbench for a real estate marketing operator: one window with two s
 3. **Vlog tab** — paste a YouTube video / playlist / channel URL. The app fetches video IDs, then loads metadata in batches of 12 with infinite scroll (IntersectionObserver sentinel near the bottom). Each card shows thumbnail / title / Generate / Copy Title / Copy Embed and is multi-selectable for a bulk thumbnail zip download. Thumbnails are draggable directly out of the page (HTML5 native drag-out with prefetched blobs + DownloadURL for desktop drops). The Generate button opens a yt-dlp-backed video player modal with frame-step controls; capturing the current frame produces a draggable JPEG.
 
 ## Who uses it
-A single power user (the developer / agent). Runs locally as a Flask + React app. Used daily in short focused bursts.
+A single power user (the developer / agent). Ships as a Windows desktop app (Tauri shell around a React UI and a bundled Flask sidecar). Used daily in short focused bursts.
 
 ## Register
 **Product.** Design serves the workflow. Dense controls, fast feedback, no decorative friction.

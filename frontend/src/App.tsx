@@ -164,7 +164,7 @@ function AppShell() {
           </nav>
 
           <div className="hidden sm:block shrink-0 text-[11.5px] font-mono text-white/40">
-            v1.0
+            v{__APP_VERSION__}
           </div>
         </header>
 

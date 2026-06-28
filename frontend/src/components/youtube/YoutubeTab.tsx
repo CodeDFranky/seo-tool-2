@@ -244,7 +244,7 @@ function YoutubeTabInner() {
             if (!rateLimited) {
               rateLimited = true
               toast.warning("Slow down", {
-                description: `Server is throttling requests. Retry in ${err.retryAfter}s.`,
+                description: `Hit a throttle limit. Retry in ${err.retryAfter}s.`,
                 duration: 4000,
               })
             }
@@ -337,7 +337,7 @@ function YoutubeTabInner() {
     } catch (err) {
       if (err instanceof RateLimitError) {
         toast.warning("Slow down", {
-          description: `Server is throttling. Retry in ${err.retryAfter}s.`,
+          description: `Hit a throttle limit. Retry in ${err.retryAfter}s.`,
         })
       } else {
         toast.error(String(err))
@@ -426,7 +426,7 @@ function YoutubeTabInner() {
                   <Popover.Trigger asChild>
                     <button
                       type="button"
-                      aria-label="Rate-limit details"
+                      aria-label="About downloads"
                       className="inline-flex items-center justify-center h-4 w-4 align-middle text-ink-4 hover:text-gold transition-colors"
                     >
                       <Info className="h-3.5 w-3.5" />
@@ -443,12 +443,13 @@ function YoutubeTabInner() {
                                  data-[side=bottom]:slide-in-from-top-1"
                     >
                       <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gold mb-2">
-                        Rate limits
+                        About downloads
                       </p>
                       <p className="text-[12px] text-ink-on-jet/85 leading-relaxed">
-                        Fetching is throttled to ~6 URLs/min, ~30 videos/min, and 4 custom
-                        thumbnails/min (max 30/hr). These caps stay well under YouTube&apos;s
-                        and Vimeo&apos;s guest budgets so your IP doesn&apos;t get soft-blocked.
+                        Up to 3 video captures download in parallel. Each one includes
+                        short polite-use pauses (a few seconds between requests) so your
+                        IP doesn&apos;t trip YouTube or Vimeo&apos;s automation defenses on
+                        bulk runs.
                       </p>
                       <Popover.Arrow className="fill-jet stroke-line" />
                     </Popover.Content>
