@@ -211,10 +211,22 @@ Step "Publish GitHub Release"
 # being eaten by Out-Null. gh release create is the step most likely to
 # hit transient network issues (talks to GitHub); retry once before
 # giving up to absorb a flake.
+# Keep notes quote-free. PowerShell's array-splat to a native exe
+# re-tokenizes strings, and gh.exe sees nested quotes as flag-value
+# boundaries; the previous version's ""More info"" / ""Run anyway""
+# blew up with `no matches found for `info then Run``.
+$notes = @(
+    "DFR Toolkit v$Version.",
+    "",
+    "Download and double-click the installer below. Windows SmartScreen will warn on first install -- click More info then Run anyway (the binary is unsigned but harmless).",
+    "",
+    "The app will auto-update on its next launch for anyone already on an older version."
+) -join "`n"
+
 $ghArgs = @(
     "release", "create", "v$Version",
     "--title", "v$Version",
-    "--notes", "DFR Toolkit v$Version.`n`nDownload and double-click the installer below. Windows SmartScreen will warn; click ""More info"" then ""Run anyway"" (unsigned binary; harmless).`n`nThe app will auto-update on its next launch for anyone already on an older version.",
+    "--notes", $notes,
     "--latest",
     $stagedExe, $stagedJson
 )
