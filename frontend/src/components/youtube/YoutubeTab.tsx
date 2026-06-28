@@ -651,7 +651,14 @@ function YoutubeTabInner() {
       toast.success(`Saved ${filename}`, {
         id: toastId,
         description: result.path,
-        action: { label: "Reveal", onClick: () => revealInFolder(result.path) },
+        action: {
+          label: "Reveal",
+          onClick: () => {
+            revealInFolder(result.path).catch((err) =>
+              toast.error("Couldn't reveal in folder", { description: String(err) }),
+            )
+          },
+        },
         duration: 4000,
       })
       // OS-level notification for the user who walked away while we ZIP'd.

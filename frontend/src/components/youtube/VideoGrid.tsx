@@ -133,7 +133,14 @@ function VideoCardImpl({
       recordDownload({ filename, path: result.path, kind: "thumbnail", size: file.size })
       toast.success(`Saved ${filename}`, {
         description: result.path,
-        action: { label: "Reveal", onClick: () => revealInFolder(result.path) },
+        action: {
+          label: "Reveal",
+          onClick: () => {
+            revealInFolder(result.path).catch((err) =>
+              toast.error("Couldn't reveal in folder", { description: String(err) }),
+            )
+          },
+        },
         duration: 4000,
       })
     } catch (err) {
