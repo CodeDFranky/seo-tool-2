@@ -17,6 +17,8 @@
         }
       ]
     },
-    "updater:default"
+    "updater:default",
+    "dialog:default",
+    "fs:default"
   ]
 }

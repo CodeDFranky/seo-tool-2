@@ -40,6 +40,7 @@ import {
   type Platform,
 } from "@/lib/api"
 import { describeUrl, resolveSupportedUrl } from "@/lib/videoUrl"
+import { saveBlob } from "@/lib/saveBlob"
 
 /**
  * Run `worker` over `items` with a fixed concurrency. Used to stay under
@@ -371,15 +372,14 @@ function YoutubeTabInner() {
       const blob = await downloadThumbnails(
         selected.map((v) => ({ url: v.thumbnail, title: v.title }))
       )
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = "thumbnails.zip"
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-      toast.success("Download started", { id: toastId })
+      const result = await saveBlob(blob, "thumbnails.zip", [
+        { name: "ZIP archive", extensions: ["zip"] },
+      ])
+      if (result === "cancelled") {
+        toast.dismiss(toastId)
+        return
+      }
+      toast.success("Saved", { id: toastId })
     } catch (err) {
       toast.error("Download failed", { id: toastId, description: String(err) })
     }

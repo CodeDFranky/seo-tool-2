@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { useMediaQuery } from "@/lib/useMediaQuery"
 import { idbClear, idbDelete, idbLoadAll, idbPut } from "./capture-idb"
 import { setSolidDragImage } from "@/lib/drag-image"
+import { saveBlob } from "@/lib/saveBlob"
 
 const MAX_CAPTURES = 100
 
@@ -216,9 +217,9 @@ function handleCaptureDrag(e: React.DragEvent<HTMLDivElement>, c: Capture) {
 }
 
 function downloadCapture(c: Capture) {
-  const a = document.createElement("a")
-  a.href = c.url; a.download = c.file.name
-  document.body.appendChild(a); a.click(); document.body.removeChild(a)
+  void saveBlob(c.file, c.file.name, [
+    { name: "JPEG image", extensions: ["jpg", "jpeg"] },
+  ])
 }
 
 function formatClock(secs: number): string {

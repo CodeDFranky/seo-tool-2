@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { fetchThumbnailFile, proxyThumbnailUrl, type VideoInfo } from "@/lib/api"
 import { setSolidDragImage } from "@/lib/drag-image"
+import { saveBlob } from "@/lib/saveBlob"
 import { cn } from "@/lib/utils"
 import {
   useActiveCapture,
@@ -90,19 +91,23 @@ function VideoCardImpl({
     setTimeout(() => setCopiedEmbed(false), 1100)
     toast.success("Embed URL copied", { duration: 1200 })
   }
-  function downloadThumbnail() {
+  async function downloadThumbnail() {
+    const filters = [{ name: "JPEG image", extensions: ["jpg", "jpeg"] }]
     const cached = blobCache.get(video.video_id)
-    const a = document.createElement("a")
     if (cached) {
-      const url = URL.createObjectURL(cached)
-      a.href = url; a.download = filename
-      document.body.appendChild(a); a.click(); document.body.removeChild(a)
-      setTimeout(() => URL.revokeObjectURL(url), 0)
+      await saveBlob(cached, filename, filters)
       return
     }
-    a.href = proxyThumbnailUrl(video.video_id, video.platform)
-    a.download = filename; a.target = "_blank"; a.rel = "noopener noreferrer"
-    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    // No cached blob yet — fetch it through the proxy so we have real bytes
+    // for the native dialog/fs write (and the web fallback gets a stable blob URL).
+    try {
+      const file = await fetchThumbnailFile(video.video_id, video.platform, filename)
+      blobCache.set(video.video_id, file)
+      setThumbReady(true)
+      await saveBlob(file, filename, filters)
+    } catch (err) {
+      toast.error("Download failed", { description: String(err) })
+    }
   }
 
   function handleDragStart(e: React.DragEvent<HTMLDivElement>) {
