@@ -5,16 +5,13 @@ import { Toaster } from "@/components/ui/sonner"
 import { SeoTab } from "@/components/seo/SeoTab"
 import { YoutubeTab } from "@/components/youtube/YoutubeTab"
 import { LandingPage } from "@/components/landing/LandingPage"
+import { CaptureHistoryProvider } from "@/components/youtube/capture-history"
+import { DownloadHistoryProvider } from "@/components/youtube/download-history"
 import {
-  CaptureHistoryProvider,
-  CaptureHistoryPanel,
-  useCaptureHistoryActions,
-} from "@/components/youtube/capture-history"
-import {
-  DownloadHistoryProvider,
-  DownloadHistoryPanel,
-  useDownloadHistoryActions,
-} from "@/components/youtube/download-history"
+  RightPanel,
+  RightPanelProvider,
+  useRightPanel,
+} from "@/components/youtube/right-panel"
 import { SettingsButton } from "@/components/SettingsButton"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
@@ -54,10 +51,8 @@ function readStoredView(): View {
 function AppShell() {
   const [view, setView] = useState<View>(readStoredView)
   const [tool, setTool] = useState<Tool>(readStoredTool)
-  // Actions context — stable identity. AppShell will not re-render on
-  // capture / download mutations because of this.
-  const { setPanelOpen } = useCaptureHistoryActions()
-  const { setPanelOpen: setDownloadsPanelOpen } = useDownloadHistoryActions()
+  // Single drawer state — open/close + which tab is shown.
+  const { close: closeRightPanel } = useRightPanel()
 
   // Persist the active tab and view so a reload preserves the user's spot.
   useEffect(() => {
@@ -67,14 +62,13 @@ function AppShell() {
     try { localStorage.setItem(VIEW_STORAGE_KEY, view) } catch { /* ignore */ }
   }, [view])
 
-  // Auto-close the side panels when leaving the Vlog tab or returning to
-  // landing — both would otherwise overlay incorrect surfaces.
+  // Auto-close the side drawer when leaving the Vlog tab or returning to
+  // landing — it would otherwise overlay incorrect surfaces.
   useEffect(() => {
     if (tool !== "vlog" || view !== "app") {
-      setPanelOpen(false)
-      setDownloadsPanelOpen(false)
+      closeRightPanel()
     }
-  }, [tool, view, setPanelOpen, setDownloadsPanelOpen])
+  }, [tool, view, closeRightPanel])
 
   const enterApp = useCallback((nextTool: Tool) => {
     setTool(nextTool)
@@ -226,12 +220,7 @@ function AppShell() {
             </motion.div>
           </main>
 
-          {tool === "vlog" && (
-            <>
-              <DownloadHistoryPanel />
-              <CaptureHistoryPanel />
-            </>
-          )}
+          {tool === "vlog" && view === "app" && <RightPanel />}
         </div>
       </motion.div>
 
@@ -245,7 +234,9 @@ export default function App() {
   return (
     <CaptureHistoryProvider>
       <DownloadHistoryProvider>
-        <AppShell />
+        <RightPanelProvider>
+          <AppShell />
+        </RightPanelProvider>
       </DownloadHistoryProvider>
     </CaptureHistoryProvider>
   )

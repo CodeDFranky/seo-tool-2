@@ -1,79 +1,34 @@
 import {
-  createContext, useCallback, useContext, useEffect, useMemo, useState,
+  useEffect, useMemo, useState,
   type ReactNode,
 } from "react"
 import { toast } from "sonner"
 import { AnimatePresence, motion } from "framer-motion"
 import {
-  Copy, ExternalLink, FileArchive, FileImage, FolderDown, Trash2, X,
+  Copy, ExternalLink, FileArchive, FileImage, FolderDown, Trash2,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { useMediaQuery } from "@/lib/useMediaQuery"
 import {
   clearDownloads, MAX_DOWNLOADS, removeDownload, useDownloadHistory,
   type DownloadKind, type DownloadRecord,
 } from "@/lib/download-history"
 import { copyPath, revealInFolder } from "@/lib/reveal"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useRightPanel } from "./right-panel"
 
-/** Width of the inline side panel when open (matches CaptureHistoryPanel). */
-const PANEL_WIDTH = 440
-
-/* ───────────────────────── context split (actions / data) ───────────── */
+/* ───────────────────────── provider (passthrough) ───────────────────── */
 
 /**
- * Same actions/data context split as CaptureHistoryProvider — stable
- * actions for consumers that only need to toggle the panel (the header
- * button), separate data for consumers that need to know if it's open
- * (the panel itself).
+ * The downloads list itself lives in `@/lib/download-history` (a module-level
+ * store with its own `useDownloadHistory` hook), and panel open/close
+ * state moved to `RightPanelProvider`. This provider is now a stable
+ * passthrough mount point so the existing `<DownloadHistoryProvider>`
+ * wrapper at app root keeps working without a rename — and so future
+ * per-panel state has a home if we need one.
  */
-interface DownloadHistoryActions {
-  setPanelOpen: (open: boolean) => void
-  togglePanel: () => void
-}
-
-interface DownloadHistoryData {
-  isPanelOpen: boolean
-}
-
-const ActionsCtx = createContext<DownloadHistoryActions | null>(null)
-const DataCtx = createContext<DownloadHistoryData | null>(null)
-
-export function useDownloadHistoryActions(): DownloadHistoryActions {
-  const ctx = useContext(ActionsCtx)
-  if (!ctx) throw new Error("useDownloadHistoryActions must be used inside DownloadHistoryProvider")
-  return ctx
-}
-
-function useDownloadHistoryPanelState(): DownloadHistoryData {
-  const ctx = useContext(DataCtx)
-  if (!ctx) throw new Error("useDownloadHistoryPanelState must be used inside DownloadHistoryProvider")
-  return ctx
-}
-
 export function DownloadHistoryProvider({ children }: { children: ReactNode }) {
-  const [isPanelOpen, setIsPanelOpen] = useState(false)
-
-  const setPanelOpen = useCallback((o: boolean) => setIsPanelOpen(o), [])
-  const togglePanel = useCallback(() => setIsPanelOpen((o) => !o), [])
-
-  const actionsValue = useMemo<DownloadHistoryActions>(
-    () => ({ setPanelOpen, togglePanel }),
-    [setPanelOpen, togglePanel],
-  )
-  const dataValue = useMemo<DownloadHistoryData>(
-    () => ({ isPanelOpen }),
-    [isPanelOpen],
-  )
-
-  return (
-    <ActionsCtx.Provider value={actionsValue}>
-      <DataCtx.Provider value={dataValue}>
-        {children}
-      </DataCtx.Provider>
-    </ActionsCtx.Provider>
-  )
+  return <>{children}</>
 }
 
 /* ───────────────────────── helpers ──────────────────────────────────── */
@@ -144,15 +99,15 @@ function groupByDate(records: DownloadRecord[], now: number): DateGroup[] {
 /* ───────────────────────── Toggle button ────────────────────────────── */
 
 export function DownloadHistoryButton() {
-  const { togglePanel } = useDownloadHistoryActions()
-  const { isPanelOpen } = useDownloadHistoryPanelState()
+  const { openTab, toggle } = useRightPanel()
+  const isPanelOpen = openTab === "downloads"
   const records = useDownloadHistory()
   const hasAny = records.length > 0
 
   return (
     <button
       type="button"
-      onClick={togglePanel}
+      onClick={() => toggle("downloads")}
       aria-label={`Download history (${records.length} of ${MAX_DOWNLOADS})`}
       aria-expanded={isPanelOpen}
       className={cn(
@@ -271,174 +226,104 @@ function DownloadRow({ rec, now }: DownloadRowProps) {
   )
 }
 
-/* ───────────────────────── Side panel ───────────────────────────────── */
+/* ───────────────────────── Drawer body ──────────────────────────────── */
 
-export function DownloadHistoryPanel() {
-  const { setPanelOpen } = useDownloadHistoryActions()
-  const { isPanelOpen } = useDownloadHistoryPanelState()
+/**
+ * The Downloads tab body. Sub-header (count + clear-all) + scroll list +
+ * footer. NO outer aside / backdrop / close — those belong to the
+ * unified `RightPanel` shell.
+ */
+export function DownloadHistoryBody() {
+  const { openTab } = useRightPanel()
+  const isVisible = openTab === "downloads"
   const records = useDownloadHistory()
   const hasAny = records.length > 0
-  // Above md the panel is an inline sibling that animates its width and
-  // pushes content; below md it floats over the page as a dismissible
-  // drawer so the main view keeps its full real estate.
-  const isDesktop = useMediaQuery("(min-width: 768px)")
 
   // Tick `now` once a minute so the "x minutes ago" labels stay fresh
-  // without thrashing on every render.
+  // without thrashing on every render. Only runs while this tab is
+  // actually mounted/visible — when the user switches to Captures the
+  // body unmounts (cross-fade is mode="wait") and the interval clears.
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    if (!isPanelOpen) return
+    if (!isVisible) return
     const id = window.setInterval(() => setNow(Date.now()), 60_000)
     return () => window.clearInterval(id)
-  }, [isPanelOpen])
+  }, [isVisible])
 
   const groups = useMemo(() => groupByDate(records, now), [records, now])
 
-  // Close on Escape for keyboard parity with sheets/dialogs.
-  useEffect(() => {
-    if (!isPanelOpen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPanelOpen(false)
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [isPanelOpen, setPanelOpen])
-
-  const motionProps = isDesktop
-    ? {
-        initial: { width: 0 },
-        animate: { width: PANEL_WIDTH },
-        exit: { width: 0 },
-      }
-    : {
-        initial: { x: "100%" },
-        animate: { x: 0 },
-        exit: { x: "100%" },
-      }
-
   return (
-    <AnimatePresence initial={false}>
-      {isPanelOpen && (
-        <>
-          {!isDesktop && (
-            <motion.div
-              key="download-backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              onClick={() => setPanelOpen(false)}
-              aria-hidden
-              className="fixed inset-0 z-30 bg-black/60"
-            />
-          )}
-          <motion.aside
-            key="download-panel"
-            {...motionProps}
-            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-            className={cn(
-              "bg-surface flex",
-              isDesktop
-                ? "shrink-0 overflow-hidden"
-                : "fixed inset-y-0 right-0 z-40 w-[min(440px,90vw)] shadow-[0_0_40px_-10px_rgba(0,0,0,0.8)]",
-            )}
-            aria-label="Download history"
-          >
-            <div
-              style={isDesktop ? { width: PANEL_WIDTH } : undefined}
-              className={cn(
-                "h-full flex flex-col shrink-0",
-                !isDesktop && "w-full",
-              )}
-            >
-              {/* Header */}
-              <header className="flex items-center justify-between gap-3 px-4 h-11 bg-jet shrink-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gold whitespace-nowrap">
-                    Downloads
-                  </p>
-                  <span className="text-[12px] tabular-nums font-mono text-ink-4 whitespace-nowrap">
-                    {records.length} / {MAX_DOWNLOADS}
-                  </span>
-                </div>
-                <div className="flex items-center gap-0.5">
-                  {hasAny && (
-                    <button
-                      onClick={clearDownloads}
-                      aria-label="Clear all downloads"
-                      className="inline-flex items-center justify-center h-9 w-9 text-ink-4 hover:text-bad transition-colors"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => setPanelOpen(false)}
-                        aria-label="Close history"
-                        className="inline-flex items-center justify-center h-9 w-9 text-ink-3 hover:text-ink transition-colors"
+    <>
+      {/* Sub-header: count + clear-all. The drawer's tab strip is above. */}
+      <div className="flex items-center justify-between gap-3 px-4 h-9 bg-jet/40 shrink-0 border-b border-line-soft/40">
+        <span className="text-[12px] tabular-nums font-mono text-ink-3 whitespace-nowrap">
+          {records.length} / {MAX_DOWNLOADS}
+        </span>
+        {hasAny && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={clearDownloads}
+                aria-label="Clear all downloads"
+                className="inline-flex items-center justify-center h-7 w-7 text-ink-4 hover:text-bad transition-colors"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Clear all</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+
+      {/* Body */}
+      {hasAny ? (
+        <div className="flex-1 overflow-y-auto px-3 py-3">
+          <div className="flex flex-col gap-4">
+            {groups.map((g) => (
+              <section key={g.label} className="flex flex-col gap-1.5">
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-gold px-0.5">
+                  {g.label}
+                </p>
+                <div className="flex flex-col gap-1">
+                  <AnimatePresence initial={false}>
+                    {g.records.map((r) => (
+                      <motion.div
+                        key={r.id}
+                        layout
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.96 }}
+                        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
                       >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">Close</TooltipContent>
-                  </Tooltip>
-                </div>
-              </header>
-
-              {/* Body */}
-              {hasAny ? (
-                <div className="flex-1 overflow-y-auto px-3 py-3">
-                  <div className="flex flex-col gap-4">
-                    {groups.map((g) => (
-                      <section key={g.label} className="flex flex-col gap-1.5">
-                        <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-gold px-0.5">
-                          {g.label}
-                        </p>
-                        <div className="flex flex-col gap-1">
-                          <AnimatePresence initial={false}>
-                            {g.records.map((r) => (
-                              <motion.div
-                                key={r.id}
-                                layout
-                                initial={{ opacity: 0, y: 6 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, scale: 0.96 }}
-                                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                              >
-                                <DownloadRow rec={r} now={now} />
-                              </motion.div>
-                            ))}
-                          </AnimatePresence>
-                        </div>
-                      </section>
+                        <DownloadRow rec={r} now={now} />
+                      </motion.div>
                     ))}
-                  </div>
+                  </AnimatePresence>
                 </div>
-              ) : (
-                <div className="flex-1 flex items-center justify-center px-6 text-center">
-                  <p className="text-[13px] text-ink-2 leading-relaxed">
-                    No downloads yet.
-                    <br />
-                    <span className="text-ink-4">
-                      Save a thumbnail or batch ZIP from the Vlog grid.
-                    </span>
-                  </p>
-                </div>
-              )}
-
-              {/* Footer — important: this list is just a sidebar log;
-                  the actual files on disk are yours and never touched
-                  by the app. */}
-              {hasAny && (
-                <footer className="px-4 py-2 bg-jet/60 text-[11.5px] text-ink-4 text-center shrink-0">
-                  Files on disk are permanent · this list keeps the last {MAX_DOWNLOADS.toLocaleString()}
-                </footer>
-              )}
-            </div>
-          </motion.aside>
-        </>
+              </section>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center px-6 text-center">
+          <p className="text-[13px] text-ink-2 leading-relaxed">
+            No downloads yet.
+            <br />
+            <span className="text-ink-4">
+              Save a thumbnail or batch ZIP from the Vlog grid.
+            </span>
+          </p>
+        </div>
       )}
-    </AnimatePresence>
+
+      {/* Footer — important: this list is just a sidebar log;
+          the actual files on disk are yours and never touched
+          by the app. */}
+      {hasAny && (
+        <footer className="px-4 py-2 bg-jet/60 text-[11.5px] text-ink-4 text-center shrink-0">
+          Files on disk are permanent · this list keeps the last {MAX_DOWNLOADS.toLocaleString()}
+        </footer>
+      )}
+    </>
   )
 }

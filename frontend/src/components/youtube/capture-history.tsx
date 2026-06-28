@@ -6,7 +6,6 @@ import { AnimatePresence, motion } from "framer-motion"
 import { toast } from "sonner"
 import { ChevronDown, Download, GripVertical, History, Trash2, X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useMediaQuery } from "@/lib/useMediaQuery"
 import { idbClear, idbDelete, idbLoadAll, idbPut } from "./capture-idb"
 import { setSolidDragImage } from "@/lib/drag-image"
 import { saveBlob } from "@/lib/saveBlob"
@@ -14,14 +13,12 @@ import { getSetting } from "@/lib/settings"
 import { recordDownload } from "@/lib/download-history"
 import { revealInFolder } from "@/lib/reveal"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useRightPanel } from "./right-panel"
 
 const MAX_CAPTURES = 100
 
 /** Number of frames auto-captured the first time a video's modal is opened. */
 export const AUTO_PREFETCH_COUNT = 6
-
-/** Width of the inline side panel when open. */
-const PANEL_WIDTH = 440
 
 export type CaptureOrigin = "manual" | "auto"
 
@@ -41,8 +38,10 @@ export interface Capture {
 /**
  * Stable actions. The functions inside this context never change identity
  * across the lifetime of the provider — callers that only need to mutate
- * the history (e.g. AppShell's `setPanelOpen`) will never re-render when
- * captures change.
+ * the history will never re-render when captures change.
+ *
+ * Panel open/close state used to live here too; it now lives on
+ * `RightPanelProvider` since Captures and Downloads share one drawer.
  */
 interface CaptureHistoryActions {
   addCapture: (c: Omit<Capture, "id" | "capturedAt">) => Capture
@@ -51,15 +50,12 @@ interface CaptureHistoryActions {
   /** Has this video already had its auto-prefetch run in this session?
    *  Reads via a ref — does not re-render consumers when captures change. */
   hasCapturesFor: (videoId: string) => boolean
-  setPanelOpen: (open: boolean) => void
-  togglePanel: () => void
 }
 
 /** Data that changes on every mutation. Consumers re-render when used. */
 interface CaptureHistoryData {
   captures: Capture[]
   max: number
-  isPanelOpen: boolean
 }
 
 /** Backward-compat shape exposed by `useCaptureHistory()`. */
@@ -68,7 +64,7 @@ type CaptureHistoryAPI = CaptureHistoryActions & CaptureHistoryData
 const ActionsCtx = createContext<CaptureHistoryActions | null>(null)
 const DataCtx    = createContext<CaptureHistoryData | null>(null)
 
-/** Read both. Re-renders on every capture/panel state change. */
+/** Read both. Re-renders on every capture mutation. */
 export function useCaptureHistory(): CaptureHistoryAPI {
   const actions = useContext(ActionsCtx)
   const data    = useContext(DataCtx)
@@ -85,7 +81,6 @@ export function useCaptureHistoryActions(): CaptureHistoryActions {
 
 export function CaptureHistoryProvider({ children }: { children: ReactNode }) {
   const [captures, setCaptures] = useState<Capture[]>([])
-  const [isPanelOpen, setIsPanelOpen] = useState(false)
   const urlsRef = useRef<string[]>([])
   const hydratedRef = useRef(false)
   // Mirror of `captures` so action functions can read the latest value
@@ -173,9 +168,6 @@ export function CaptureHistoryProvider({ children }: { children: ReactNode }) {
     setCaptures([])
   }, [])
 
-  const togglePanel = useCallback(() => setIsPanelOpen((o) => !o), [])
-  const setPanelOpen = useCallback((o: boolean) => setIsPanelOpen(o), [])
-
   const hasCapturesFor = useCallback(
     (videoId: string) => capturesRef.current.some((c) => c.videoId === videoId),
     []
@@ -193,14 +185,14 @@ export function CaptureHistoryProvider({ children }: { children: ReactNode }) {
   // ActionsCtx value is referentially stable for the lifetime of the
   // provider, and consumers like AppShell don't re-render on history mutations.
   const actionsValue = useMemo<CaptureHistoryActions>(
-    () => ({ addCapture, removeCapture, clearAll, hasCapturesFor, setPanelOpen, togglePanel }),
-    [addCapture, removeCapture, clearAll, hasCapturesFor, setPanelOpen, togglePanel]
+    () => ({ addCapture, removeCapture, clearAll, hasCapturesFor }),
+    [addCapture, removeCapture, clearAll, hasCapturesFor]
   )
   // Data does change on every mutation — only consumers that actually
-  // need to read captures / max / isPanelOpen subscribe.
+  // need to read captures / max subscribe.
   const dataValue = useMemo<CaptureHistoryData>(
-    () => ({ captures, max: MAX_CAPTURES, isPanelOpen }),
-    [captures, isPanelOpen]
+    () => ({ captures, max: MAX_CAPTURES }),
+    [captures]
   )
 
   return (
@@ -338,13 +330,15 @@ export function CaptureTile({
 /* ───────────────────────── History toggle button ────────────────────── */
 
 export function CaptureHistoryButton() {
-  const { captures, max, isPanelOpen, togglePanel } = useCaptureHistory()
+  const { captures, max } = useCaptureHistory()
+  const { openTab, toggle } = useRightPanel()
+  const isPanelOpen = openTab === "captures"
   const hasAny = captures.length > 0
 
   return (
     <button
       type="button"
-      onClick={togglePanel}
+      onClick={() => toggle("captures")}
       aria-label={`Capture history (${captures.length} of ${max})`}
       aria-expanded={isPanelOpen}
       className={cn(
@@ -376,7 +370,7 @@ export function CaptureHistoryButton() {
   )
 }
 
-/* ───────────────────────── Side panel ───────────────────────────────── */
+/* ───────────────────────── Drawer body ──────────────────────────────── */
 
 interface CaptureGroup {
   videoId: string
@@ -405,15 +399,15 @@ function groupByVideo(captures: Capture[]): CaptureGroup[] {
   return Array.from(map.values()).sort((a, b) => b.latest - a.latest)
 }
 
-export function CaptureHistoryPanel() {
-  const { captures, max, isPanelOpen, setPanelOpen, removeCapture, clearAll } =
-    useCaptureHistory()
+/**
+ * The Captures tab body. Renders the count/clear sub-header, the grouped
+ * list of captures, and the footer. NO outer aside / backdrop / close —
+ * that chrome is the unified `RightPanel`'s responsibility.
+ */
+export function CaptureHistoryBody() {
+  const { captures, max, removeCapture, clearAll } = useCaptureHistory()
   const hasAny = captures.length > 0
   const groups = useMemo(() => groupByVideo(captures), [captures])
-  // Above md the panel is an inline sibling that animates its width and
-  // pushes content; below md it floats over the page as a dismissible
-  // drawer so the main view keeps its full real estate.
-  const isDesktop = useMediaQuery("(min-width: 768px)")
 
   // Track which video groups are expanded. By default only the most
   // recent one (top of the list) is open so the panel stays uncluttered.
@@ -435,246 +429,166 @@ export function CaptureHistoryPanel() {
   const toggleGroup = (id: string) =>
     setOpenMap((m) => ({ ...m, [id]: !m[id] }))
 
-  // Close on Escape for keyboard parity with sheets/dialogs.
-  useEffect(() => {
-    if (!isPanelOpen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPanelOpen(false)
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [isPanelOpen, setPanelOpen])
-
-  // Animation shape differs by mode: width-animation pushes inline content
-  // out of the way on desktop; translate-x slides in over the page on
-  // mobile (paired with a tappable backdrop below).
-  const motionProps = isDesktop
-    ? {
-        initial: { width: 0 },
-        animate: { width: PANEL_WIDTH },
-        exit:    { width: 0 },
-      }
-    : {
-        initial: { x: "100%" },
-        animate: { x: 0 },
-        exit:    { x: "100%" },
-      }
-
   return (
-    <AnimatePresence initial={false}>
-      {isPanelOpen && (
-        <>
-          {!isDesktop && (
-            <motion.div
-              key="capture-backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              onClick={() => setPanelOpen(false)}
-              aria-hidden
-              className="fixed inset-0 z-30 bg-black/60"
-            />
-          )}
-          <motion.aside
-            key="capture-panel"
-            {...motionProps}
-            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-            className={cn(
-              "bg-surface flex",
-              isDesktop
-                // Inline sibling: width animation, no splitter (the
-                // bg-surface step against bg-page is the boundary).
-                ? "shrink-0 overflow-hidden"
-                // Floating drawer: cap width to the viewport so 320px
-                // screens still get a peek of the page edge.
-                : "fixed inset-y-0 right-0 z-40 w-[min(440px,90vw)] shadow-[0_0_40px_-10px_rgba(0,0,0,0.8)]"
-            )}
-            aria-label="Capture history"
-          >
-          <div
-            style={isDesktop ? { width: PANEL_WIDTH } : undefined}
-            className={cn(
-              "h-full flex flex-col shrink-0",
-              !isDesktop && "w-full",
-            )}
-          >
-          {/* Header */}
-          <header className="flex items-center justify-between gap-3 px-4 h-11 bg-jet shrink-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gold whitespace-nowrap">
-                Captures
-              </p>
-              <span className="text-[12px] tabular-nums font-mono text-ink-4 whitespace-nowrap">
-                {captures.length} / {max}
-              </span>
-            </div>
-            <div className="flex items-center gap-0.5">
-              {hasAny && (
-                <button
-                  onClick={clearAll}
-                  aria-label="Clear all captures"
-                  className="inline-flex items-center justify-center h-9 w-9 text-ink-4 hover:text-bad transition-colors"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              )}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => setPanelOpen(false)}
-                    aria-label="Close history"
-                    className="inline-flex items-center justify-center h-9 w-9 text-ink-3 hover:text-ink transition-colors"
+    <>
+      {/* Sub-header: count + clear-all. The drawer's tab strip is above. */}
+      <div className="flex items-center justify-between gap-3 px-4 h-9 bg-jet/40 shrink-0 border-b border-line-soft/40">
+        <span className="text-[12px] tabular-nums font-mono text-ink-3 whitespace-nowrap">
+          {captures.length} / {max}
+        </span>
+        {hasAny && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={clearAll}
+                aria-label="Clear all captures"
+                className="inline-flex items-center justify-center h-7 w-7 text-ink-4 hover:text-bad transition-colors"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Clear all</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+
+      {/* Body */}
+      {hasAny ? (
+        <div className="flex-1 overflow-y-auto px-3 py-3">
+          <div className="flex flex-col gap-3">
+            <AnimatePresence initial={false}>
+              {groups.map((g) => {
+                const open = openMap[g.videoId] ?? false
+                const sorted = [...g.items].sort((a, b) => b.capturedAt - a.capturedAt)
+                const manual = sorted.filter((c) => c.origin === "manual")
+                const auto = sorted.filter((c) => c.origin === "auto")
+                return (
+                  <motion.section
+                    key={g.videoId}
+                    layout
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.96 }}
+                    transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                    className="bg-surface-2"
                   >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Close</TooltipContent>
-              </Tooltip>
-            </div>
-          </header>
-
-          {/* Body */}
-          {hasAny ? (
-            <div className="flex-1 overflow-y-auto px-3 py-3">
-              <div className="flex flex-col gap-3">
-                <AnimatePresence initial={false}>
-                  {groups.map((g) => {
-                    const open = openMap[g.videoId] ?? false
-                    const sorted = [...g.items].sort((a, b) => b.capturedAt - a.capturedAt)
-                    const manual = sorted.filter((c) => c.origin === "manual")
-                    const auto = sorted.filter((c) => c.origin === "auto")
-                    return (
-                      <motion.section
-                        key={g.videoId}
-                        layout
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.96 }}
-                        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-                        className="bg-surface-2"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => toggleGroup(g.videoId)}
-                          className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-surface-3 transition-colors"
-                          aria-expanded={open}
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(g.videoId)}
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-surface-3 transition-colors"
+                      aria-expanded={open}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <motion.span
+                          animate={{ rotate: open ? 0 : -90 }}
+                          transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                          className="text-ink-4 shrink-0"
                         >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <motion.span
-                              animate={{ rotate: open ? 0 : -90 }}
-                              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                              className="text-ink-4 shrink-0"
-                            >
-                              <ChevronDown className="h-3.5 w-3.5" />
-                            </motion.span>
-                            <span
-                              className="text-[13px] font-medium text-ink truncate"
-                              title={g.videoTitle ?? g.videoId}
-                            >
-                              {g.videoTitle ?? g.videoId}
-                            </span>
-                          </div>
-                          <span className="text-[11.5px] tabular-nums font-mono text-ink-3 shrink-0">
-                            {g.items.length}
-                          </span>
-                        </button>
-                        <AnimatePresence initial={false}>
-                          {open && (
-                            <motion.div
-                              key="content"
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: "auto", opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                              className="overflow-hidden"
-                            >
-                              <div className="flex flex-col gap-3 p-2 bg-surface">
-                                {manual.length > 0 && (
-                                  <div className="flex flex-col gap-1.5">
-                                    {auto.length > 0 && (
-                                      <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-gold/90 px-0.5">
-                                        Captured · <span className="font-mono tabular-nums text-ink-4">{manual.length}</span>
-                                      </p>
-                                    )}
-                                    <div className="grid grid-cols-3 gap-2">
-                                      <AnimatePresence initial={false}>
-                                        {manual.map((c) => (
-                                          <motion.div
-                                            key={c.id}
-                                            layout
-                                            initial={{ opacity: 0, scale: 0.94 }}
-                                            animate={{ opacity: 1, scale: 1 }}
-                                            exit={{ opacity: 0, scale: 0.94 }}
-                                            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                                          >
-                                            <CaptureTile c={c} onRemove={removeCapture} />
-                                          </motion.div>
-                                        ))}
-                                      </AnimatePresence>
-                                    </div>
-                                  </div>
-                                )}
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        </motion.span>
+                        <span
+                          className="text-[13px] font-medium text-ink truncate"
+                          title={g.videoTitle ?? g.videoId}
+                        >
+                          {g.videoTitle ?? g.videoId}
+                        </span>
+                      </div>
+                      <span className="text-[11.5px] tabular-nums font-mono text-ink-3 shrink-0">
+                        {g.items.length}
+                      </span>
+                    </button>
+                    <AnimatePresence initial={false}>
+                      {open && (
+                        <motion.div
+                          key="content"
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                          className="overflow-hidden"
+                        >
+                          <div className="flex flex-col gap-3 p-2 bg-surface">
+                            {manual.length > 0 && (
+                              <div className="flex flex-col gap-1.5">
                                 {auto.length > 0 && (
-                                  <div className="flex flex-col gap-1.5">
-                                    <p className="text-[10.5px] font-medium uppercase tracking-[0.10em] text-ink-3 px-0.5">
-                                      Auto-generated · <span className="font-mono tabular-nums text-ink-4">{auto.length}</span>
-                                    </p>
-                                    <div className="grid grid-cols-3 gap-2">
-                                      <AnimatePresence initial={false}>
-                                        {auto.map((c) => (
-                                          <motion.div
-                                            key={c.id}
-                                            layout
-                                            initial={{ opacity: 0, scale: 0.94 }}
-                                            animate={{ opacity: 1, scale: 1 }}
-                                            exit={{ opacity: 0, scale: 0.94 }}
-                                            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                                          >
-                                            <CaptureTile c={c} onRemove={removeCapture} />
-                                          </motion.div>
-                                        ))}
-                                      </AnimatePresence>
-                                    </div>
-                                  </div>
+                                  <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-gold/90 px-0.5">
+                                    Captured · <span className="font-mono tabular-nums text-ink-4">{manual.length}</span>
+                                  </p>
                                 )}
+                                <div className="grid grid-cols-3 gap-2">
+                                  <AnimatePresence initial={false}>
+                                    {manual.map((c) => (
+                                      <motion.div
+                                        key={c.id}
+                                        layout
+                                        initial={{ opacity: 0, scale: 0.94 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        exit={{ opacity: 0, scale: 0.94 }}
+                                        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                                      >
+                                        <CaptureTile c={c} onRemove={removeCapture} />
+                                      </motion.div>
+                                    ))}
+                                  </AnimatePresence>
+                                </div>
                               </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </motion.section>
-                    )
-                  })}
-                </AnimatePresence>
-              </div>
-            </div>
-          ) : (
-            <div className="flex-1 flex items-center justify-center px-6 text-center">
-              <p className="text-[13px] text-ink-2 leading-relaxed">
-                No captures yet.
-                <br />
-                <span className="text-ink-4">
-                  Open a video, click <span className="text-ink-2 font-semibold">Generate</span>, then
-                  <span className="text-ink-2 font-semibold"> Capture frame</span>.
-                </span>
-              </p>
-            </div>
-          )}
-
-          {/* Footer — captures DO live in IndexedDB (each frame is a real
-              JPEG blob), unlike the Downloads panel which is just a list
-              pointing at files-on-disk. So the cap here is meaningful:
-              hit {max} and the oldest frame's bytes get evicted. Drag or
-              click Download to save a copy somewhere permanent. */}
-          {hasAny && (
-            <footer className="px-4 py-2 bg-jet/60 text-[11.5px] text-ink-4 text-center shrink-0">
-              Drag or download to save · oldest evicted after {max}
-            </footer>
-          )}
+                            )}
+                            {auto.length > 0 && (
+                              <div className="flex flex-col gap-1.5">
+                                <p className="text-[10.5px] font-medium uppercase tracking-[0.10em] text-ink-3 px-0.5">
+                                  Auto-generated · <span className="font-mono tabular-nums text-ink-4">{auto.length}</span>
+                                </p>
+                                <div className="grid grid-cols-3 gap-2">
+                                  <AnimatePresence initial={false}>
+                                    {auto.map((c) => (
+                                      <motion.div
+                                        key={c.id}
+                                        layout
+                                        initial={{ opacity: 0, scale: 0.94 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        exit={{ opacity: 0, scale: 0.94 }}
+                                        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                                      >
+                                        <CaptureTile c={c} onRemove={removeCapture} />
+                                      </motion.div>
+                                    ))}
+                                  </AnimatePresence>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.section>
+                )
+              })}
+            </AnimatePresence>
           </div>
-          </motion.aside>
-        </>
+        </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center px-6 text-center">
+          <p className="text-[13px] text-ink-2 leading-relaxed">
+            No captures yet.
+            <br />
+            <span className="text-ink-4">
+              Open a video, click <span className="text-ink-2 font-semibold">Generate</span>, then
+              <span className="text-ink-2 font-semibold"> Capture frame</span>.
+            </span>
+          </p>
+        </div>
       )}
-    </AnimatePresence>
+
+      {/* Footer — captures DO live in IndexedDB (each frame is a real
+          JPEG blob), unlike the Downloads tab which is just a list
+          pointing at files-on-disk. So the cap here is meaningful:
+          hit {max} and the oldest frame's bytes get evicted. Drag or
+          click Download to save a copy somewhere permanent. */}
+      {hasAny && (
+        <footer className="px-4 py-2 bg-jet/60 text-[11.5px] text-ink-4 text-center shrink-0">
+          Drag or download to save · oldest evicted after {max}
+        </footer>
+      )}
+    </>
   )
 }
