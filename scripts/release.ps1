@@ -207,12 +207,27 @@ Ok "Pushed to origin"
 # -- 7. Publish GitHub Release -------------------------------------------------
 Step "Publish GitHub Release"
 
-gh release create "v$Version" `
-    --title "v$Version" `
-    --notes "DFR Toolkit v$Version.`n`nDownload and double-click the installer below. Windows SmartScreen will warn; click ""More info"" then ""Run anyway"" (unsigned binary; harmless).`n`nThe app will auto-update on its next launch for anyone already on an older version." `
-    --latest `
-    $stagedExe $stagedJson 2>&1 | Out-Null
-if ($LASTEXITCODE -ne 0) { Die "gh release create failed." }
+# Capture gh's output so a failure surfaces the real message instead of
+# being eaten by Out-Null. gh release create is the step most likely to
+# hit transient network issues (talks to GitHub); retry once before
+# giving up to absorb a flake.
+$ghArgs = @(
+    "release", "create", "v$Version",
+    "--title", "v$Version",
+    "--notes", "DFR Toolkit v$Version.`n`nDownload and double-click the installer below. Windows SmartScreen will warn; click ""More info"" then ""Run anyway"" (unsigned binary; harmless).`n`nThe app will auto-update on its next launch for anyone already on an older version.",
+    "--latest",
+    $stagedExe, $stagedJson
+)
+$ghOutput = & gh @ghArgs 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Info "gh release create failed once, retrying after 5s..."
+    Start-Sleep -Seconds 5
+    $ghOutput = & gh @ghArgs 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ($ghOutput | Out-String) -ForegroundColor Yellow
+        Die "gh release create failed twice. See output above. The tag is pushed; finish manually with: gh release create v$Version --latest <files>"
+    }
+}
 
 # Note: .sig is intentionally NOT uploaded as a release asset. The
 # minisign signature is already embedded inline in latest.json (the
