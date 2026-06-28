@@ -709,7 +709,7 @@ function YoutubeTabInner() {
   return (
     <TooltipProvider delayDuration={300}>
       <div className="h-full overflow-y-auto bg-page relative">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 sm:py-10 pb-28">
+        <div className="mx-auto max-w-screen-2xl px-4 sm:px-6 lg:px-8 py-8 sm:py-10 pb-28">
           {/* Title row */}
           <header className="flex items-end justify-between mb-9">
             <div>

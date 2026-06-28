@@ -230,7 +230,7 @@ export function SeoTab() {
 
   return (
     <div className="h-full overflow-y-auto bg-page">
-      <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
         {/* Title row */}
         <header className="flex items-end justify-between mb-9">
           <div>

@@ -336,7 +336,6 @@ function VideoCardImpl({
                     className="flex-1 inline-flex items-center justify-center gap-1 h-7 px-2.5 bg-surface-2 text-[12.5px] font-medium text-ink-4 cursor-not-allowed"
                   >
                     <AlertCircle className="h-3 w-3" />
-                    <span className="hidden sm:inline">Can't capture</span>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -438,7 +437,7 @@ export function VideoGrid({ videos, selectedIds, onSelectChange, recentCount = 0
   )
 
   return (
-    <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
+    <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
       {videos.map((video, i) =>
         video ? (
           <VideoCard
@@ -502,7 +501,7 @@ function CaptureButton({ videoId, title, platform, slot, actions }: CaptureButto
             className={NEUTRAL_BTN}
           >
             <Wand2 className="h-3 w-3" />
-            <span className="hidden sm:inline">Generate</span>
+            <span className="hidden sm:inline">Capture</span>
           </button>
         </TooltipTrigger>
         <TooltipContent>
