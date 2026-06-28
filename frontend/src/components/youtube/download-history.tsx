@@ -15,6 +15,7 @@ import {
   type DownloadKind, type DownloadRecord,
 } from "@/lib/download-history"
 import { copyPath, revealInFolder } from "@/lib/reveal"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 /** Width of the inline side panel when open (matches CaptureHistoryPanel). */
 const PANEL_WIDTH = 440
@@ -218,39 +219,51 @@ function DownloadRow({ rec, now }: DownloadRowProps) {
           </span>
           <div className="flex items-center gap-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity">
             {!browser && (
-              <button
-                type="button"
-                onClick={() => revealInFolder(rec.path).catch((err) =>
-                  toast.error("Couldn't reveal in folder", { description: String(err) }),
-                )}
-                aria-label="Reveal in folder"
-                title="Reveal in folder"
-                className="inline-flex items-center justify-center h-6 w-6 text-ink-3 hover:text-ink hover:bg-jet transition-colors"
-              >
-                <ExternalLink className="h-3 w-3" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => revealInFolder(rec.path).catch((err) =>
+                      toast.error("Couldn't reveal in folder", { description: String(err) }),
+                    )}
+                    aria-label="Reveal in folder"
+                    className="inline-flex items-center justify-center h-6 w-6 text-ink-3 hover:text-ink hover:bg-jet transition-colors"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Reveal in folder</TooltipContent>
+              </Tooltip>
             )}
-            <button
-              type="button"
-              onClick={() => {
-                void copyPath(rec.path)
-                toast.success("Path copied", { duration: 1200 })
-              }}
-              aria-label="Copy path"
-              title="Copy path"
-              className="inline-flex items-center justify-center h-6 w-6 text-ink-3 hover:text-ink hover:bg-jet transition-colors"
-            >
-              <Copy className="h-3 w-3" />
-            </button>
-            <button
-              type="button"
-              onClick={() => removeDownload(rec.id)}
-              aria-label="Remove from list"
-              title="Remove from list"
-              className="inline-flex items-center justify-center h-6 w-6 text-ink-3 hover:text-bad hover:bg-jet transition-colors"
-            >
-              <Trash2 className="h-3 w-3" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void copyPath(rec.path)
+                    toast.success("Path copied", { duration: 1200 })
+                  }}
+                  aria-label="Copy path"
+                  className="inline-flex items-center justify-center h-6 w-6 text-ink-3 hover:text-ink hover:bg-jet transition-colors"
+                >
+                  <Copy className="h-3 w-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Copy path</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => removeDownload(rec.id)}
+                  aria-label="Remove from list"
+                  className="inline-flex items-center justify-center h-6 w-6 text-ink-3 hover:text-bad hover:bg-jet transition-colors"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Remove from list</TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </div>
@@ -358,14 +371,18 @@ export function DownloadHistoryPanel() {
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   )}
-                  <button
-                    onClick={() => setPanelOpen(false)}
-                    aria-label="Close history"
-                    title="Close"
-                    className="inline-flex items-center justify-center h-9 w-9 text-ink-3 hover:text-ink transition-colors"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setPanelOpen(false)}
+                        aria-label="Close history"
+                        className="inline-flex items-center justify-center h-9 w-9 text-ink-3 hover:text-ink transition-colors"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">Close</TooltipContent>
+                  </Tooltip>
                 </div>
               </header>
 
@@ -410,10 +427,12 @@ export function DownloadHistoryPanel() {
                 </div>
               )}
 
-              {/* Footer */}
+              {/* Footer — important: this list is just a sidebar log;
+                  the actual files on disk are yours and never touched
+                  by the app. */}
               {hasAny && (
                 <footer className="px-4 py-2 bg-jet/60 text-[11.5px] text-ink-4 text-center shrink-0">
-                  Oldest replaced after {MAX_DOWNLOADS}
+                  Files on disk are permanent · this list keeps the last {MAX_DOWNLOADS.toLocaleString()}
                 </footer>
               )}
             </div>

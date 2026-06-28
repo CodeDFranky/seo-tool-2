@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { TooltipProvider } from "@/components/ui/tooltip"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { VideoGrid } from "./VideoGrid"
 import { CaptureHistoryButton } from "./capture-history"
 import { DownloadHistoryButton } from "./download-history"
@@ -830,21 +830,25 @@ function YoutubeTabInner() {
               </Button>
               <AnimatePresence>
                 {canRefresh && (
-                  <motion.button
-                    key="refresh"
-                    type="button"
-                    initial={{ opacity: 0, scale: 0.92, width: 0 }}
-                    animate={{ opacity: 1, scale: 1, width: "auto" }}
-                    exit={{ opacity: 0, scale: 0.92, width: 0 }}
-                    transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                    onClick={handleRefresh}
-                    disabled={isWorking}
-                    aria-label="Refresh from source"
-                    title="Bypass cache and re-fetch from source"
-                    className="shrink-0 inline-flex items-center justify-center h-10 w-10 bg-surface-2 text-ink-2 border border-line-soft hover:bg-surface-3 hover:text-ink hover:border-gold/60 transition-colors disabled:opacity-50 disabled:pointer-events-none"
-                  >
-                    <RefreshCw className="h-3.5 w-3.5" />
-                  </motion.button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <motion.button
+                        key="refresh"
+                        type="button"
+                        initial={{ opacity: 0, scale: 0.92, width: 0 }}
+                        animate={{ opacity: 1, scale: 1, width: "auto" }}
+                        exit={{ opacity: 0, scale: 0.92, width: 0 }}
+                        transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                        onClick={handleRefresh}
+                        disabled={isWorking}
+                        aria-label="Refresh from source"
+                        className="shrink-0 inline-flex items-center justify-center h-10 w-10 bg-surface-2 text-ink-2 border border-line-soft hover:bg-surface-3 hover:text-ink hover:border-gold/60 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      </motion.button>
+                    </TooltipTrigger>
+                    <TooltipContent>Bypass cache and re-fetch from source</TooltipContent>
+                  </Tooltip>
                 )}
               </AnimatePresence>
             </div>

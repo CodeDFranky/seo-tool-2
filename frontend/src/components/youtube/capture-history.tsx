@@ -13,6 +13,7 @@ import { saveBlob } from "@/lib/saveBlob"
 import { getSetting } from "@/lib/settings"
 import { recordDownload } from "@/lib/download-history"
 import { revealInFolder } from "@/lib/reveal"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 const MAX_CAPTURES = 100
 
@@ -518,14 +519,18 @@ export function CaptureHistoryPanel() {
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               )}
-              <button
-                onClick={() => setPanelOpen(false)}
-                aria-label="Close history"
-                className="inline-flex items-center justify-center h-9 w-9 text-ink-3 hover:text-ink transition-colors"
-                title="Close"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setPanelOpen(false)}
+                    aria-label="Close history"
+                    className="inline-flex items-center justify-center h-9 w-9 text-ink-3 hover:text-ink transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Close</TooltipContent>
+              </Tooltip>
             </div>
           </header>
 
@@ -656,10 +661,14 @@ export function CaptureHistoryPanel() {
             </div>
           )}
 
-          {/* Footer */}
+          {/* Footer — captures DO live in IndexedDB (each frame is a real
+              JPEG blob), unlike the Downloads panel which is just a list
+              pointing at files-on-disk. So the cap here is meaningful:
+              hit {max} and the oldest frame's bytes get evicted. Drag or
+              click Download to save a copy somewhere permanent. */}
           {hasAny && (
             <footer className="px-4 py-2 bg-jet/60 text-[11.5px] text-ink-4 text-center shrink-0">
-              Drag any frame anywhere · oldest replaced after {max}
+              Drag or download to save · oldest evicted after {max}
             </footer>
           )}
           </div>

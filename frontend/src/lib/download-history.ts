@@ -1,14 +1,21 @@
 /**
  * Persistent list of recent downloads, backed by localStorage.
  *
- * Capped at MAX_ENTRIES; oldest entries are dropped on overflow. Mutations
- * fire a `dfr:downloads-changed` window event so any number of subscribers
- * (panel, badge, etc.) re-render without prop-drilling.
+ * Capped at MAX_ENTRIES to bound localStorage growth. Important: this is
+ * a cap on the IN-APP HISTORY LIST, not on the saved files themselves --
+ * files written via saveBlob live wherever the user picked and are never
+ * touched by this app again. When the cap is hit the oldest history rows
+ * are dropped; the files those rows pointed to stay on disk as the user
+ * left them.
+ *
+ * Each entry is ~200 bytes of metadata so 2000 entries is ~400KB --
+ * comfortably inside the 5MB localStorage budget. The original cap of
+ * 100 was defensive paranoia and made the sidebar feel disposable.
  */
 import { useEffect, useState } from "react"
 
 const STORAGE_KEY = "dfr:download-history"
-const MAX_ENTRIES = 100
+const MAX_ENTRIES = 2000
 
 export type DownloadKind = "thumbnail" | "batch-zip" | "frame"
 

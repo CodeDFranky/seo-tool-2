@@ -16,6 +16,7 @@ import {
   useDownloadHistoryActions,
 } from "@/components/youtube/download-history"
 import { SettingsButton } from "@/components/SettingsButton"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 type Tool = "seo" | "vlog"
 type View = "landing" | "app"
@@ -92,6 +93,10 @@ function AppShell() {
     // sessions survive view changes. Crossfade is driven by opacity on
     // stacked absolute layers rather than mount/unmount via AnimatePresence.
     // Same pattern applies one level deeper for SEO vs Vlog.
+    // TooltipProvider lifted to app root so every icon-button across the
+    // tree (header, panel close X's, settings gear, etc.) can use Radix
+    // tooltips without each surface spinning up its own provider.
+    <TooltipProvider delayDuration={350}>
     <div className="h-screen w-screen overflow-hidden bg-page text-ink relative">
       {/* ── Landing layer ───────────────────────────────────────────── */}
       <motion.div
@@ -125,23 +130,27 @@ function AppShell() {
             wordmark hides first so the centered tabs have room, then the
             version stamp hides if there's still not enough space. */}
         <header className="shrink-0 h-14 flex items-center gap-3 px-3 sm:px-6 bg-jet text-ink-on-jet">
-          <button
-            type="button"
-            onClick={exitToLanding}
-            aria-label="Back to landing"
-            title="Back to landing"
-            className="group shrink-0 flex items-center gap-2.5 -mx-2 px-2 py-1.5 transition-colors
-                       hover:bg-white/[0.04]"
-          >
-            <div className="h-7 w-7 overflow-hidden border border-white/15
-                            transition-[border-color] group-hover:border-gold/60">
-              <img src={dfrLogo} alt="" className="h-full w-full object-cover" />
-            </div>
-            <span className="hidden sm:inline text-[12.5px] font-medium tracking-[0.14em] uppercase
-                             transition-colors group-hover:text-gold">
-              DFR Toolkit
-            </span>
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={exitToLanding}
+                aria-label="Back to landing"
+                className="group shrink-0 flex items-center gap-2.5 -mx-2 px-2 py-1.5 transition-colors
+                           hover:bg-white/[0.04]"
+              >
+                <div className="h-7 w-7 overflow-hidden border border-white/15
+                                transition-[border-color] group-hover:border-gold/60">
+                  <img src={dfrLogo} alt="" className="h-full w-full object-cover" />
+                </div>
+                <span className="hidden sm:inline text-[12.5px] font-medium tracking-[0.14em] uppercase
+                                 transition-colors group-hover:text-gold">
+                  DFR Toolkit
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Back to landing</TooltipContent>
+          </Tooltip>
 
           <nav
             className="flex-1 flex items-center justify-center gap-1 min-w-0"
@@ -228,6 +237,7 @@ function AppShell() {
 
       <Toaster />
     </div>
+    </TooltipProvider>
   )
 }
 
