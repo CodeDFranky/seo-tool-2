@@ -18,7 +18,24 @@
         "height": 800,
         "resizable": true,
         "dragDropEnabled": false,
-        "fullscreen": false
+        "fullscreen": false,
+        "visible": false,
+        "center": true
+      },
+      {
+        "label": "splashscreen",
+        "url": "splash.html",
+        "title": "DFR Toolkit",
+        "width": 440,
+        "height": 220,
+        "resizable": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "center": true,
+        "skipTaskbar": true,
+        "transparent": false,
+        "shadow": true,
+        "dragDropEnabled": false
       }
     ],
     "security": {

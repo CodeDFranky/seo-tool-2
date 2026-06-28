@@ -10,9 +10,10 @@
 //! The sidecar process is killed when the app exits — Tauri's CommandChild
 //! handle is dropped along with the main window's lifecycle.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-use tauri::{Emitter, Manager, RunEvent, State};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 #[cfg(not(debug_assertions))]
@@ -24,9 +25,38 @@ struct BackendState {
     child: Mutex<Option<CommandChild>>,
 }
 
+/// Tracks whether the sidecar and the React app are both ready. When both
+/// flags are set, Rust closes the splash window and shows the main window
+/// so the user never sees a half-painted main UI.
+#[derive(Default)]
+struct ReadyState {
+    backend_ready: AtomicBool,
+    frontend_ready: AtomicBool,
+}
+
 #[tauri::command]
 fn get_backend_port(state: State<'_, BackendState>) -> Option<u16> {
     *state.port.lock().unwrap()
+}
+
+#[tauri::command]
+fn frontend_ready(app: AppHandle, state: State<'_, ReadyState>) {
+    state.frontend_ready.store(true, Ordering::SeqCst);
+    maybe_swap_windows(&app, state.inner());
+}
+
+fn maybe_swap_windows(app: &AppHandle, state: &ReadyState) {
+    if state.backend_ready.load(Ordering::SeqCst)
+        && state.frontend_ready.load(Ordering::SeqCst)
+    {
+        if let Some(splash) = app.get_webview_window("splashscreen") {
+            let _ = splash.close();
+        }
+        if let Some(main) = app.get_webview_window("main") {
+            let _ = main.show();
+            let _ = main.set_focus();
+        }
+    }
 }
 
 fn spawn_sidecar(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
@@ -51,6 +81,13 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error
                             let state = app_handle.state::<BackendState>();
                             *state.port.lock().unwrap() = Some(port);
                             let _ = app_handle.emit("backend-ready", port);
+                            // Flip the readiness atomic and try to swap
+                            // splash → main. If the frontend hasn't called
+                            // `frontend_ready` yet this is a no-op; the
+                            // command handler will retry when it fires.
+                            let ready = app_handle.state::<ReadyState>();
+                            ready.backend_ready.store(true, Ordering::SeqCst);
+                            maybe_swap_windows(&app_handle, ready.inner());
                             continue;
                         }
                     }
@@ -89,7 +126,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(BackendState::default())
-        .invoke_handler(tauri::generate_handler![get_backend_port])
+        .manage(ReadyState::default())
+        .invoke_handler(tauri::generate_handler![get_backend_port, frontend_ready])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(

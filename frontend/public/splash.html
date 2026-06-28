@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>DFR Toolkit</title>
+    <style>
+      /* Tokens mirrored from src/index.css so this file stays standalone.
+         --page  : hsl(0 0% 4%)   body background
+         --ink-2 : hsl(0 0% 76%)  wordmark
+         --gold  : hsl(38 65% 58%) progress fill */
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        width: 100%;
+        background: hsl(0 0% 4%);
+        color: hsl(0 0% 76%);
+        font-family: "Inter", ui-sans-serif, system-ui, -apple-system,
+          "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        overflow: hidden;
+        user-select: none;
+        -webkit-user-select: none;
+        cursor: default;
+      }
+
+      .frame {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        height: 100vh;
+        width: 100vw;
+        padding-top: 36px;
+        box-sizing: border-box;
+      }
+
+      .logo {
+        width: 64px;
+        height: 64px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+      }
+      .logo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        -webkit-user-drag: none;
+        user-drag: none;
+        pointer-events: none;
+      }
+
+      .wordmark {
+        margin-top: 16px;
+        font-size: 13px;
+        font-weight: 500;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #c2c2c2;
+      }
+
+      .spacer {
+        flex: 1 1 auto;
+      }
+
+      .bar {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 1px;
+        width: 100%;
+        background: rgba(255, 255, 255, 0.06);
+        overflow: hidden;
+      }
+      .bar::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 30%;
+        background: #d4a44b;
+        animation: slide 1.4s ease-in-out infinite;
+      }
+
+      @keyframes slide {
+        0%   { transform: translateX(-100%); }
+        100% { transform: translateX(333%); }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <div class="logo">
+        <img src="dfr.png" alt="" draggable="false" />
+      </div>
+      <div class="wordmark">DFR Toolkit</div>
+      <div class="spacer"></div>
+      <div class="bar" role="progressbar" aria-label="Loading"></div>
+    </div>
+  </body>
+</html>
