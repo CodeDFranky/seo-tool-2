@@ -1,15 +1,40 @@
 import yt_dlp
 
 
+# Browsers whose cookie jars yt-dlp knows how to read. Anything else
+# from the frontend (including the sentinel "none") is treated as
+# "no cookies" and yt-dlp runs anonymously.
+SUPPORTED_COOKIE_BROWSERS = frozenset({
+    "chrome", "firefox", "edge", "brave", "vivaldi", "opera",
+})
+
+
 # Metadata extraction is light (info-only, no media bytes). The polite
 # floor matters most for sustained bulk scraping; a single local user
 # pulling a few batches at a time can run with no inter-request pause
 # and still stay well below YouTube's per-IP envelope. The heavy-media
 # capture path keeps its sleeps separately in app.py.
-_METADATA_OPTS = {
-    "quiet": True,
-    "no_warnings": True,
-}
+def _metadata_opts(cookies_browser: str | None = None) -> dict:
+    """Return a fresh dict of yt-dlp options for metadata extraction.
+
+    Returned as a fresh dict (not a module-level constant) so callers
+    can mutate without bleeding into other invocations. When
+    `cookies_browser` is one of the supported browsers, yt-dlp will
+    transparently read the user's saved cookies and use them on every
+    request — this is what unlocks members-only, age-restricted, and
+    region-blocked-but-signed-in-region videos.
+    """
+    opts: dict = {
+        "quiet": True,
+        "no_warnings": True,
+    }
+    if cookies_browser and cookies_browser in SUPPORTED_COOKIE_BROWSERS:
+        # yt-dlp's Python API expects a tuple of (browser_name, profile,
+        # keyring, container). Only the first element matters for our
+        # case — pass it as a 1-tuple and yt-dlp fills the rest with
+        # sensible defaults (default profile, default keyring).
+        opts["cookiesfrombrowser"] = (cookies_browser,)
+    return opts
 
 
 def _build_video_url(video_id: str, platform: str) -> str:
@@ -64,7 +89,7 @@ def get_video_ids(url: str, start: int = 1, end: int | None = None) -> list[str]
     """
     spec = f"{start}:{end}" if end is not None else f"{start}:"
     opts = {
-        **_METADATA_OPTS,
+        **_metadata_opts(),
         "extract_flat": True,
         "playlist_items": spec,
         # Stream entries lazily; together with playlist_items it stops
@@ -80,10 +105,14 @@ def get_video_ids(url: str, start: int = 1, end: int | None = None) -> list[str]
         return [result["id"]] if result.get("id") else []
 
 
-def get_video_info(video_id: str, platform: str = "youtube") -> dict:
+def get_video_info(
+    video_id: str,
+    platform: str = "youtube",
+    cookies_browser: str | None = None,
+) -> dict:
     target = _build_video_url(video_id, platform)
     try:
-        with yt_dlp.YoutubeDL(_METADATA_OPTS) as ydl:
+        with yt_dlp.YoutubeDL(_metadata_opts(cookies_browser)) as ydl:
             info = ydl.extract_info(target, download=False)
     except yt_dlp.utils.DownloadError as e:
         # Premieres, members-only videos, age-gated content, region-blocked
@@ -152,7 +181,11 @@ def _summarize_yt_dlp_error(msg: str) -> str:
         return "Password-protected"
     if "embed-only" in lowered or "embedding page" in lowered:
         return "Embed-only"
-    if "login" in lowered or "sign in" in lowered:
+    # Sign-in / cookies hint. The frontend turns this into a one-time
+    # toast prompting the user to configure browser cookies in Settings.
+    if "sign in" in lowered or "cookies" in lowered:
+        return "Sign-in required"
+    if "login" in lowered:
         return "Login required"
 
     # Client / app restrictions (YouTube's "Made for Kids" type blocks).

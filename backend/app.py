@@ -1,4 +1,9 @@
-from helpers import detect_platform, get_video_ids, get_video_info
+from helpers import (
+    SUPPORTED_COOKIE_BROWSERS,
+    detect_platform,
+    get_video_ids,
+    get_video_info,
+)
 from cache import URL_IDS_CACHE, VIDEO_INFO_CACHE
 from logs import fmt_dur, fmt_size, log
 from rate_limit import (
@@ -102,11 +107,39 @@ def _vimeo_thumbnail(video_id: str):
 CAPTURE_CACHE_BASE = os.path.join(tempfile.gettempdir(), "seo-tool-2-capture")
 os.makedirs(CAPTURE_CACHE_BASE, exist_ok=True)
 
-# yt-dlp binary lives in the PyInstaller bundle when frozen, otherwise
-# the project venv on dev machines.
+# yt-dlp binary lookup. Preference order:
+#   1. User-managed copy fetched by the in-app updater (Settings →
+#      Engine → Check for update). Lives in the app's local app-data
+#      directory so it survives app updates and reinstalls.
+#   2. The bundled copy shipped inside the PyInstaller exe.
+#   3. The dev-venv installation.
+# This means a user can patch a broken yt-dlp without waiting on us to
+# cut a new release.
+def _user_ytdlp_path() -> str:
+    """Conventional path for the user-managed yt-dlp copy.
+
+    On Windows the Tauri host writes to %LOCALAPPDATA%\\com.dfr.toolkit\\.
+    The backend doesn't have the Tauri AppHandle to ask, so the path is
+    hard-coded to match the Tauri identifier (`com.dfr.toolkit`). On
+    non-Windows dev hosts where LOCALAPPDATA isn't defined, fall back to
+    a hidden directory in the user's home so the test path still works.
+    """
+    if os.name == "nt":
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            return os.path.join(local, "com.dfr.toolkit", "yt-dlp.exe")
+        # Resolve the env var even when expandvars finds nothing — keeps
+        # behavior consistent on weird Windows shells without LOCALAPPDATA.
+        expanded = os.path.expandvars(r"%LOCALAPPDATA%\com.dfr.toolkit\yt-dlp.exe")
+        if "%" not in expanded:
+            return expanded
+    return os.path.expanduser("~/.dfr-toolkit/yt-dlp.exe")
+
+
 def _find_ytdlp():
     base = _bundle_dir()
     candidates = [
+        _user_ytdlp_path(),
         os.path.join(base, "yt-dlp.exe"),
         os.path.join(base, "yt-dlp"),
         os.path.join(os.path.dirname(__file__), "venv", "Scripts", "yt-dlp.exe"),
@@ -214,6 +247,16 @@ def fetch_video_info():
     body = request.get_json(silent=True) or {}
     video_id = body.get("video_id")
     platform = body.get("platform", "youtube")
+    # Optional: the browser whose cookies yt-dlp should read. Frontend
+    # passes this on every metadata call when the user has set
+    # "Browser sign-in" in Settings. Anything unrecognized (incl. the
+    # sentinel "none" or null) means "no cookies".
+    cookies_browser_raw = body.get("cookies_browser")
+    cookies_browser = (
+        cookies_browser_raw
+        if isinstance(cookies_browser_raw, str) and cookies_browser_raw in SUPPORTED_COOKIE_BROWSERS
+        else None
+    )
     if platform not in ("youtube", "vimeo"):
         return jsonify({"error": "Unsupported platform"}), 400
     if platform == "youtube" and not YOUTUBE_ID_RE.match(video_id or ""):
@@ -221,7 +264,11 @@ def fetch_video_info():
     if platform == "vimeo" and not VIMEO_ID_RE.match(video_id or ""):
         return jsonify({"error": "Invalid Vimeo ID"}), 400
 
-    cache_key = f"{platform}:{video_id}"
+    # The cache key includes the cookies-browser choice because a
+    # logged-in extraction can return different (or any!) metadata vs.
+    # an anonymous one — caching them together would poison the result
+    # the next time someone fetches the same ID with a different setting.
+    cache_key = f"{platform}:{video_id}:{cookies_browser or ''}"
     if cache_key in VIDEO_INFO_CACHE:
         return jsonify(VIDEO_INFO_CACHE[cache_key])
 
@@ -235,7 +282,7 @@ def fetch_video_info():
             resp.headers["Retry-After"] = "3"
             return resp
         try:
-            video_data = get_video_info(video_id, platform)
+            video_data = get_video_info(video_id, platform, cookies_browser=cookies_browser)
             VIDEO_INFO_CACHE[cache_key] = video_data
             log.info("[meta] miss id=%s platform=%s dur=%s", video_id, platform, fmt_dur(time.time() - t0))
             return jsonify(video_data)
@@ -318,6 +365,15 @@ def capture_thumbnail_start():
     body = request.get_json(silent=True) or {}
     video_id = body.get("id", "")
     platform = body.get("platform", "youtube")
+    # See /api/fetch_video_info for the cookies-browser handshake. Same
+    # idea: validate against the supported set; anything else falls
+    # through to anonymous.
+    cookies_browser_raw = body.get("cookies_browser")
+    cookies_browser = (
+        cookies_browser_raw
+        if isinstance(cookies_browser_raw, str) and cookies_browser_raw in SUPPORTED_COOKIE_BROWSERS
+        else None
+    )
 
     if platform not in ("youtube", "vimeo"):
         return jsonify({"error": "Only YouTube and Vimeo are supported"}), 400
@@ -376,21 +432,30 @@ def capture_thumbnail_start():
         proc = None
         try:
             try:
+                ytdlp_args = [
+                    YTDLP_BIN,
+                    "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720][ext=mp4]/best[height<=720]/best",
+                    "--merge-output-format", "mp4",
+                    "--no-playlist",
+                    "--newline",
+                    # Tuned for a single-user desktop rather than a cloud deploy, while keeping polite-use floors that protect the user's residential IP from YouTube/Vimeo automation detection.
+                    "--sleep-requests", "1",
+                    "--sleep-interval", "5",
+                    "--max-sleep-interval", "10",
+                    "--concurrent-fragments", "4",
+                    "-o", output_template,
+                ]
+                # Cookies passthrough. yt-dlp's --cookies-from-browser
+                # takes the browser name (optionally with profile/keyring)
+                # and transparently reads the user's cookie jar. We only
+                # emit the flag when the user opted in; absence means
+                # anonymous, same as before.
+                if cookies_browser:
+                    ytdlp_args.extend(["--cookies-from-browser", cookies_browser])
+                ytdlp_args.append(video_url)
+
                 proc = subprocess.Popen(
-                    [
-                        YTDLP_BIN,
-                        "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720][ext=mp4]/best[height<=720]/best",
-                        "--merge-output-format", "mp4",
-                        "--no-playlist",
-                        "--newline",
-                        # Tuned for a single-user desktop rather than a cloud deploy, while keeping polite-use floors that protect the user's residential IP from YouTube/Vimeo automation detection.
-                        "--sleep-requests", "1",
-                        "--sleep-interval", "5",
-                        "--max-sleep-interval", "10",
-                        "--concurrent-fragments", "4",
-                        "-o", output_template,
-                        video_url,
-                    ],
+                    ytdlp_args,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
@@ -550,6 +615,34 @@ def capture_thumbnail_cleanup():
     if os.path.isdir(token_dir):
         shutil.rmtree(token_dir, ignore_errors=True)
     return jsonify({"ok": True})
+
+
+@app.route("/api/ytdlp_version", methods=["GET"])
+def ytdlp_version():
+    """Report which yt-dlp is in use and its version string.
+
+    Surfaced in Settings → Engine so the user can confirm a fresh
+    download took effect, and so support can quickly distinguish
+    "user is on the bundled copy" from "user has self-updated".
+    The `is_user_copy` flag matches the conventional path written by
+    the Rust-side updater command (see `update_ytdlp` in src-tauri).
+    """
+    try:
+        proc = subprocess.run(
+            [YTDLP_BIN, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+        )
+        version = proc.stdout.strip() if proc.returncode == 0 else "unknown"
+    except Exception:
+        version = "unknown"
+    return jsonify({
+        "version": version,
+        "path": YTDLP_BIN,
+        "is_user_copy": os.path.dirname(YTDLP_BIN).endswith("com.dfr.toolkit"),
+    })
 
 
 if __name__ == "__main__":

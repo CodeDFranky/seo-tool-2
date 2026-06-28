@@ -59,6 +59,60 @@ fn maybe_swap_windows(app: &AppHandle, state: &ReadyState) {
     }
 }
 
+/// Download the latest yt-dlp.exe from GitHub Releases into the app's
+/// local data directory (`%LOCALAPPDATA%\com.dfr.toolkit\` on Windows).
+/// The Python backend's `_find_ytdlp` prefers this copy over the bundled
+/// one, so a fresh download takes effect after the next backend start.
+///
+/// Atomic via `.tmp` + rename so a half-downloaded file can never replace
+/// a working binary if the download is interrupted.
+#[tauri::command]
+async fn update_ytdlp(app: tauri::AppHandle) -> Result<String, String> {
+    use std::io::Write;
+
+    let target_dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|e| format!("no app-data dir: {e}"))?;
+    std::fs::create_dir_all(&target_dir).map_err(|e| format!("mkdir failed: {e}"))?;
+    let target = target_dir.join("yt-dlp.exe");
+
+    // GitHub's "latest" alias redirects to the actual release asset and
+    // is stable across releases — no need to parse the release JSON.
+    let url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+    let resp = reqwest::get(url)
+        .await
+        .map_err(|e| format!("download failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("download HTTP {}", resp.status()));
+    }
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("read failed: {e}"))?;
+
+    let tmp = target.with_extension("exe.tmp");
+    {
+        let mut f =
+            std::fs::File::create(&tmp).map_err(|e| format!("create failed: {e}"))?;
+        f.write_all(&bytes).map_err(|e| format!("write failed: {e}"))?;
+    }
+    // On Windows rename across the same drive is atomic; even if the
+    // target already exists (subsequent updates), std::fs::rename
+    // overwrites on Windows when both paths are on the same volume.
+    std::fs::rename(&tmp, &target).map_err(|e| format!("rename failed: {e}"))?;
+
+    Ok(target.to_string_lossy().into_owned())
+}
+
+/// Relaunch the whole app. Used after `update_ytdlp` so the next backend
+/// start picks up the freshly-downloaded binary (the `YTDLP_BIN` constant
+/// in app.py is resolved once at process startup).
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
 fn spawn_sidecar(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let sidecar = app.shell().sidecar("seo-backend")?;
     let (mut rx, child) = sidecar.spawn()?;
@@ -125,9 +179,15 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(BackendState::default())
         .manage(ReadyState::default())
-        .invoke_handler(tauri::generate_handler![get_backend_port, frontend_ready])
+        .invoke_handler(tauri::generate_handler![
+            get_backend_port,
+            frontend_ready,
+            update_ytdlp,
+            restart_app,
+        ])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(

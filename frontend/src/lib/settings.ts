@@ -9,12 +9,37 @@ import { useEffect, useState } from "react"
 
 const STORAGE_PREFIX = "dfr:settings:"
 
+/** Browsers whose cookie jars yt-dlp knows how to read. "none" is the
+ *  off sentinel; everything else maps 1:1 to `--cookies-from-browser`. */
+export type CookiesBrowser =
+  | "none"
+  | "chrome"
+  | "firefox"
+  | "edge"
+  | "brave"
+  | "vivaldi"
+  | "opera"
+
+export interface NotificationSettings {
+  /** Fire an OS notification when a video capture transitions to ready. */
+  onCaptureDone: boolean
+  /** Fire an OS notification when the batch ZIP download finishes. */
+  onBatchDone: boolean
+}
+
 export interface Settings {
   defaultDownloadDir: string | null
+  cookiesBrowser: CookiesBrowser
+  notifications: NotificationSettings
 }
 
 const DEFAULTS: Settings = {
   defaultDownloadDir: null,
+  cookiesBrowser: "none",
+  notifications: {
+    onCaptureDone: true,
+    onBatchDone: true,
+  },
 }
 
 export function getSetting<K extends keyof Settings>(key: K): Settings[K] {

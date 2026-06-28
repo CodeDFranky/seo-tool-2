@@ -47,6 +47,12 @@ import { getSetting } from "@/lib/settings"
 import { recordDownload } from "@/lib/download-history"
 import { revealInFolder } from "@/lib/reveal"
 import { invalidateChannel, readChannel, writeChannel } from "@/lib/channel-cache"
+import { notify } from "@/lib/notify"
+
+/** Session-storage flag so the "Sign-in required" hint toast only fires
+ *  once per app session. Without this, every video on a members-only
+ *  channel would queue up its own toast and bury the user. */
+const COOKIES_HINT_KEY = "dfr:cookies-hint-shown"
 
 /**
  * Run `worker` over `items` with a fixed concurrency. Used to stay under
@@ -294,15 +300,43 @@ function YoutubeTabInner() {
       // this — if the user kicks off a new Fetch, sessionIdRef bumps and
       // any of *this* wave's lingering responses are dropped on the floor.
       const session = sessionIdRef.current
+      // Read the cookies-browser setting ONCE per wave. Changing it
+      // mid-wave is a power-user edge case; consistent-within-wave wins
+      // over rare freshness. The "none" sentinel maps to null in api.ts.
+      const cookiesBrowser = getSetting("cookiesBrowser")
       let rateLimited = false
+      // Latch so a wave on a members-only channel only fires one hint
+      // toast even if every video comes back "Sign-in required".
+      let signInHintFired = false
       try {
       await runWithConcurrency(ids, METADATA_CONCURRENCY, async (id, i) => {
         try {
-          const video = await fetchVideoInfo(id, plat)
+          const video = await fetchVideoInfo(id, plat, cookiesBrowser)
           if (sessionIdRef.current !== session) return
           if (!video.error) {
             dispatch({ type: "VIDEO_LOADED", video, slotIndex: slotOffset + i })
             onVideo?.(video)
+            // Sign-in hint: the backend classifies cookies/sign-in errors
+            // as "Sign-in required". If the user hasn't already configured
+            // a browser, point them at Settings — one toast per session,
+            // one per wave (whichever is stricter).
+            if (
+              video.unavailable_reason === "Sign-in required" &&
+              cookiesBrowser === "none" &&
+              !signInHintFired &&
+              !sessionStorage.getItem(COOKIES_HINT_KEY)
+            ) {
+              signInHintFired = true
+              sessionStorage.setItem(COOKIES_HINT_KEY, "1")
+              toast.info("This video needs sign-in", {
+                description: "Configure browser cookies in Settings to access it.",
+                action: {
+                  label: "Settings",
+                  onClick: () => window.dispatchEvent(new Event("dfr:open-settings")),
+                },
+                duration: 8000,
+              })
+            }
           }
         } catch (err) {
           if (sessionIdRef.current !== session) return
@@ -620,6 +654,12 @@ function YoutubeTabInner() {
         action: { label: "Reveal", onClick: () => revealInFolder(result.path) },
         duration: 4000,
       })
+      // OS-level notification for the user who walked away while we ZIP'd.
+      // Gated by the user's preference; defaults on. notify() is a no-op
+      // outside the Tauri shell and when permission is denied.
+      if (getSetting("notifications").onBatchDone) {
+        void notify("Thumbnails saved", `${selected.length} thumbnails`)
+      }
     } catch (err) {
       toast.error("Download failed", { id: toastId, description: String(err) })
     }

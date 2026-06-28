@@ -21,6 +21,8 @@ import {
 import { toast } from "sonner"
 import type { Platform } from "@/lib/api"
 import { apiUrl } from "@/lib/backend"
+import { getSetting } from "@/lib/settings"
+import { notify } from "@/lib/notify"
 
 export type CapturePhase = "queued" | "downloading" | "ready" | "error"
 
@@ -152,10 +154,21 @@ class CaptureStore {
     // both paths are recovered the same way (wait, retry).
     let parkedAsQueued = false
     try {
+      // Mirror the metadata path: pass the user's chosen browser so
+      // members-only / age-gated captures work. The "none" sentinel is
+      // omitted from the body so the backend cache key stays clean.
+      const cookiesBrowser = getSetting("cookiesBrowser")
+      const body: Record<string, unknown> = {
+        id: input.videoId,
+        platform: input.platform,
+      }
+      if (cookiesBrowser && cookiesBrowser !== "none") {
+        body.cookies_browser = cookiesBrowser
+      }
       const res = await fetch(apiUrl("/api/capture_thumbnail"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: input.videoId, platform: input.platform }),
+        body: JSON.stringify(body),
         signal: controller.signal,
       })
       if (res.status === 429) {
@@ -253,7 +266,20 @@ class CaptureStore {
   private updateSlot(videoId: string, patch: Partial<CaptureSlot>): void {
     const existing = this.slots.get(videoId)
     if (!existing) return
-    this.setSlot(videoId, { ...existing, ...patch })
+    const next = { ...existing, ...patch }
+    // OS notification on downloading → ready transition. Specifically
+    // gated on the prior phase so re-renders (e.g. progress patches
+    // that happen to set phase: "ready" again) don't fire twice. The
+    // notify() helper is a no-op outside Tauri and when the user denies
+    // permission, so the unguarded call is safe in dev/web.
+    if (
+      existing.phase !== "ready" &&
+      next.phase === "ready" &&
+      getSetting("notifications").onCaptureDone
+    ) {
+      void notify("Capture ready", next.title)
+    }
+    this.setSlot(videoId, next)
   }
 
   cancel(videoId: string): void {

@@ -80,14 +80,34 @@ export async function fetchIds(
 
 export async function fetchVideoInfo(
   video_id: string,
-  platform: Platform
+  platform: Platform,
+  cookiesBrowser?: string | null,
 ): Promise<FetchVideoInfoResponse> {
+  // Only include cookies_browser when the user has explicitly opted in
+  // (anything truthy other than the "none" sentinel). The backend tolerates
+  // null/unknown values, but keeping the body lean keeps the cache key clean.
+  const body: Record<string, unknown> = { video_id, platform }
+  if (cookiesBrowser && cookiesBrowser !== "none") {
+    body.cookies_browser = cookiesBrowser
+  }
   const res = await fetch(apiUrl("/api/fetch_video_info"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ video_id, platform }),
+    body: JSON.stringify(body),
   })
   return handleResponse(res, "Failed to fetch video info")
+}
+
+export interface YtDlpVersion {
+  version: string
+  path: string
+  is_user_copy: boolean
+}
+
+export async function fetchYtDlpVersion(): Promise<YtDlpVersion> {
+  const res = await fetch(apiUrl("/api/ytdlp_version"))
+  if (!res.ok) throw new Error(`Failed to fetch yt-dlp version: ${res.status}`)
+  return res.json()
 }
 
 export async function downloadThumbnails(items: DownloadItem[]): Promise<Blob> {

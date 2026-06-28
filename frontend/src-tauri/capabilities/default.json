@@ -25,6 +25,7 @@
     },
     "updater:default",
     "dialog:default",
-    "fs:default"
+    "fs:default",
+    "notification:default"
   ]
 }
