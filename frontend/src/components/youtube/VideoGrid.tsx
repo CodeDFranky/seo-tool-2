@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Copy, Download, Play, ExternalLink, Check, GripVertical, Wand2, Loader2, AlertCircle, Clock } from "lucide-react"
+import { Copy, Download, Play, ExternalLink, Check, GripVertical, Wand2, Loader2, AlertCircle, Clock, RotateCw } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 
 import { Skeleton } from "@/components/ui/skeleton"
@@ -58,6 +58,9 @@ function VideoCardImpl({
   const [copiedEmbed, setCopiedEmbed] = useState(false)
   const [thumbReady, setThumbReady] = useState(blobCache.has(video.video_id))
   const [thumbFailed, setThumbFailed] = useState(false)
+  // Bumping this triggers a fresh proxy fetch AND remounts the <img>, so a
+  // single Retry click recovers both load paths without touching any other card.
+  const [retryNonce, setRetryNonce] = useState(0)
   const cardRef = useRef<HTMLDivElement>(null)
   const filename = `v${index + 1}_${video.video_id}.jpg`
 
@@ -69,7 +72,7 @@ function VideoCardImpl({
   useEffect(() => {
     if (blobCache.has(video.video_id)) { setThumbReady(true); return }
     let cancelled = false
-    fetchThumbnailFile(video.video_id, video.platform, filename)
+    fetchThumbnailFile(video.video_id, video.platform, filename, 12000)
       .then((file) => {
         if (cancelled) return
         blobCache.set(video.video_id, file)
@@ -77,7 +80,13 @@ function VideoCardImpl({
       })
       .catch(() => { if (!cancelled) setThumbFailed(true) })
     return () => { cancelled = true }
-  }, [video.video_id, video.platform, filename, blobCache])
+  }, [video.video_id, video.platform, filename, blobCache, retryNonce])
+
+  function retryThumbnail() {
+    setThumbFailed(false)
+    setThumbReady(false)
+    setRetryNonce((n) => n + 1)
+  }
 
   function copyTitle() {
     navigator.clipboard.writeText(video.title)
@@ -101,7 +110,7 @@ function VideoCardImpl({
     // No cached blob yet — fetch it through the proxy so we have real bytes
     // for the native dialog/fs write (and the web fallback gets a stable blob URL).
     try {
-      const file = await fetchThumbnailFile(video.video_id, video.platform, filename)
+      const file = await fetchThumbnailFile(video.video_id, video.platform, filename, 12000)
       blobCache.set(video.video_id, file)
       setThumbReady(true)
       await saveBlob(file, filename, filters)
@@ -115,7 +124,7 @@ function VideoCardImpl({
     const cached = blobCache.get(video.video_id)
     if (!cached) {
       e.dataTransfer.effectAllowed = "none"
-      fetchThumbnailFile(video.video_id, video.platform, filename)
+      fetchThumbnailFile(video.video_id, video.platform, filename, 12000)
         .then((file) => { blobCache.set(video.video_id, file); setThumbReady(true) })
         .catch(() => setThumbFailed(true))
       toast.info("Thumbnail loading", { description: "Drag again in a moment.", duration: 1400 })
@@ -158,6 +167,7 @@ function VideoCardImpl({
           onDragStart={handleDragStart}
         >
           <img
+            key={retryNonce}
             src={video.thumbnail}
             alt={video.title}
             loading="lazy"
@@ -236,6 +246,33 @@ function VideoCardImpl({
               </div>
             </div>
           )}
+
+          {/* Failure recovery overlay. Subtle dark veil + a single Retry button
+              that re-runs both the proxy fetch (via retryNonce in the useEffect)
+              and the direct <img> load (via key={retryNonce} on the img). */}
+          <AnimatePresence>
+            {thumbFailed && (
+              <motion.div
+                key="retry-overlay"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-page/70"
+              >
+                <span className="text-[12px] text-ink-3">Couldn't load</span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); retryThumbnail() }}
+                  aria-label="Retry loading thumbnail"
+                  className="inline-flex items-center gap-1 h-7 px-2.5 text-[12px] font-medium text-gold border border-gold hover:bg-gold-soft transition-colors"
+                >
+                  <RotateCw className="h-3 w-3" />
+                  Retry
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         <div className="p-3 flex flex-col gap-2.5">

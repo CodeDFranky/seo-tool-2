@@ -99,10 +99,24 @@ export function proxyThumbnailUrl(videoId: string, platform: Platform): string {
 export async function fetchThumbnailFile(
   videoId: string,
   platform: Platform,
-  filename: string
+  filename: string,
+  timeoutMs: number = 12000
 ): Promise<File> {
-  const res = await fetch(proxyThumbnailUrl(videoId, platform))
-  if (!res.ok) throw new Error(`Thumbnail fetch failed: ${res.status}`)
-  const blob = await res.blob()
-  return new File([blob], filename, { type: blob.type || "image/jpeg" })
+  // Use an AbortController so a hung request doesn't leave the caller
+  // (a card waiting on its thumbnail) parked indefinitely.
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(proxyThumbnailUrl(videoId, platform), { signal: controller.signal })
+    if (!res.ok) throw new Error(`Thumbnail fetch failed: ${res.status}`)
+    const blob = await res.blob()
+    return new File([blob], filename, { type: blob.type || "image/jpeg" })
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("Thumbnail fetch timed out")
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
 }
