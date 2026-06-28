@@ -7,9 +7,21 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { fetchThumbnailFile, proxyThumbnailUrl, type VideoInfo } from "@/lib/api"
+import { apiUrl } from "@/lib/backend"
 import { setSolidDragImage } from "@/lib/drag-image"
 import { saveBlob } from "@/lib/saveBlob"
 import { cn } from "@/lib/utils"
+
+/** Resolve a thumbnail URL to something the browser can fetch:
+ *  - Absolute URLs (https://...) pass through unchanged.
+ *  - Backend-relative paths (/api/...) get prefixed with the live API
+ *    base so they resolve in Tauri (where the backend lives on a
+ *    different origin than the React bundle).
+ *  Used for the synthetic-fallback case where Vimeo unavailable cards
+ *  route their thumbnail through our proxy. */
+function resolveThumbUrl(url: string): string {
+  return url.startsWith("/") ? apiUrl(url) : url
+}
 import {
   useActiveCapture,
   useActiveCapturesActions,
@@ -168,19 +180,34 @@ function VideoCardImpl({
         >
           <img
             key={retryNonce}
-            src={video.thumbnail}
+            src={resolveThumbUrl(video.thumbnail)}
             alt={video.title}
             loading="lazy"
             draggable={false}
             crossOrigin="anonymous"
             onError={() => setThumbFailed(true)}
-            className="w-full h-full object-cover select-none"
+            className={cn(
+              "w-full h-full object-cover select-none",
+              // Visually demote unavailable cards: muted/desaturated thumb
+              // so the user can scan past them at a glance.
+              video.unavailable && "grayscale opacity-70"
+            )}
           />
 
           {/* Index pill (bottom-left, always visible). */}
           <span className="absolute left-1 bottom-1 inline-flex items-center px-1 h-[14px] text-[9px] font-mono font-semibold tabular-nums bg-black/65 text-white/90 border border-white/10">
             #{index + 1}
           </span>
+
+          {/* Unavailable badge (bottom-right). Tells the user WHY the
+              video can't be captured so they know not to keep clicking
+              Generate on a premiere or a private upload. */}
+          {video.unavailable && (
+            <span className="absolute right-1 bottom-1 inline-flex items-center gap-1 px-1.5 h-[14px] text-[9px] font-semibold uppercase tracking-[0.06em] bg-jet/85 text-warn border border-warn/40">
+              <AlertCircle className="h-2.5 w-2.5" strokeWidth={2.5} />
+              {video.unavailable_reason ?? "Unavailable"}
+            </span>
+          )}
 
           {/* Selection toggle (top-left). Always visible when selected;
               hover-revealed otherwise. */}
@@ -251,7 +278,11 @@ function VideoCardImpl({
               that re-runs both the proxy fetch (via retryNonce in the useEffect)
               and the direct <img> load (via key={retryNonce} on the img). */}
           <AnimatePresence>
-            {thumbFailed && (
+            {thumbFailed && !video.unavailable && (
+              // Only offer retry for transient thumbnail-load failures.
+              // Known-unavailable videos (premiere, members-only, etc.)
+              // already render their reason as a badge — a Retry button
+              // here would be misleading because the cause is permanent.
               <motion.div
                 key="retry-overlay"
                 initial={{ opacity: 0 }}
@@ -281,13 +312,36 @@ function VideoCardImpl({
           </h4>
 
           <div className="flex gap-1.5">
-            <CaptureButton
-              videoId={video.video_id}
-              title={video.title}
-              platform={video.platform}
-              slot={captureSlot}
-              actions={captureActions}
-            />
+            {video.unavailable ? (
+              // Capture would fail (yt-dlp already refused to extract
+              // metadata, so the heavy media path will refuse too).
+              // Render a disabled placeholder instead of letting the user
+              // click Generate and stare at an SSE error 30s later.
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    disabled
+                    aria-label="Capture unavailable"
+                    className="flex-1 inline-flex items-center justify-center gap-1 h-7 px-2.5 bg-surface-2 text-[12.5px] font-medium text-ink-4 cursor-not-allowed"
+                  >
+                    <AlertCircle className="h-3 w-3" />
+                    <span className="hidden sm:inline">Can't capture</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {video.unavailable_reason ?? "Video is unavailable"}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <CaptureButton
+                videoId={video.video_id}
+                title={video.title}
+                platform={video.platform}
+                slot={captureSlot}
+                actions={captureActions}
+              />
+            )}
             <button
               onClick={copyTitle}
               className="flex-1 inline-flex items-center justify-center gap-1 h-7 px-2.5 bg-surface-2 text-[12.5px] font-medium text-ink-2 hover:text-ink hover:bg-surface-3 transition-colors"

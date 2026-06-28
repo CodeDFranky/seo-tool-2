@@ -38,6 +38,14 @@ export interface VideoInfo {
   embed_url: string
   video_id: string
   platform: Platform
+  /** True when yt-dlp couldn't extract real metadata (premiere, members-only,
+   *  private, removed, channel terminated, etc.) and the backend returned
+   *  a synthetic fallback. The thumbnail typically still works. */
+  unavailable?: boolean
+  /** Short user-readable reason classified by the backend, e.g.
+   *  "Premiere not yet aired" or "Members-only". Only meaningful when
+   *  `unavailable === true`. */
+  unavailable_reason?: string
 }
 
 export interface FetchVideoInfoResponse extends VideoInfo {

@@ -29,7 +29,12 @@ def _fallback_video_info(video_id: str, platform: str, reason: str) -> dict:
     instead of silently dropping it from the grid.
     """
     if platform == "vimeo":
-        thumbnail = ""  # No equivalent always-on Vimeo thumbnail URL pattern.
+        # No direct always-on Vimeo CDN URL pattern, but our backend's
+        # proxy_thumbnail endpoint handles Vimeo via the oEmbed API.
+        # Route the synthetic card's thumbnail through it so the user
+        # sees a real image instead of a broken-image icon. The frontend
+        # wraps relative URLs through apiUrl() before rendering.
+        thumbnail = f"/api/proxy_thumbnail?id={video_id}&platform=vimeo"
         embed_url = f"https://player.vimeo.com/video/{video_id}"
     else:
         # YouTube's CDN serves /maxresdefault.jpg for any video ID,
@@ -37,7 +42,9 @@ def _fallback_video_info(video_id: str, platform: str, reason: str) -> dict:
         thumbnail = f"https://i.ytimg.com/vi/{video_id}/maxresdefault.jpg"
         embed_url = f"https://www.youtube.com/embed/{video_id}"
     return {
-        "title": f"[Unavailable: {reason}]",
+        # Short generic title — the specific reason renders as a badge on
+        # the card so the title doesn't have to carry it.
+        "title": "Unavailable video",
         "thumbnail": thumbnail,
         "embed_url": embed_url,
         "video_id": video_id,
@@ -106,20 +113,66 @@ def get_video_info(video_id: str, platform: str = "youtube") -> dict:
 
 
 def _summarize_yt_dlp_error(msg: str) -> str:
-    """Pick a short, user-readable reason out of a yt-dlp error message."""
+    """Pick a short, user-readable reason out of a yt-dlp error message.
+
+    Order matters: more specific patterns first so a generic "video
+    unavailable" doesn't swallow cases that actually meant "premiere"
+    or "removed". The labels are intentionally short — they appear as
+    a placeholder card title in the grid.
+    """
     lowered = msg.lower()
+
+    # Time-shifted content (premieres + live streams). Specific phrases
+    # before the generic "premiere" / "live" catches.
     if "premieres in" in lowered or "premiere" in lowered:
         return "Premiere not yet aired"
+    if "live event will begin" in lowered or "live stream will begin" in lowered:
+        return "Live not yet started"
+    if "live event has ended" in lowered or "live stream has ended" in lowered:
+        return "Live ended"
+
+    # Access gates.
     if "members-only" in lowered or "join this channel" in lowered:
         return "Members-only"
     if "private video" in lowered:
         return "Private"
-    if "video unavailable" in lowered or "this video is unavailable" in lowered:
-        return "Unavailable in your region"
-    if "age" in lowered and "restrict" in lowered:
+    if "age" in lowered and ("restrict" in lowered or "sign in to confirm your age" in lowered):
         return "Age-restricted"
-    if "removed" in lowered or "deleted" in lowered:
+    if "requires payment" in lowered or "rent" in lowered or "purchase" in lowered:
+        return "Paid content"
+    if "drm" in lowered:
+        return "DRM-protected"
+
+    # Account / channel state.
+    if "account has been terminated" in lowered or "channel has been terminated" in lowered:
+        return "Channel terminated"
+
+    # Vimeo-specific gates.
+    if "password" in lowered and ("protect" in lowered or "video-password" in lowered):
+        return "Password-protected"
+    if "embed-only" in lowered or "embedding page" in lowered:
+        return "Embed-only"
+    if "login" in lowered or "sign in" in lowered:
+        return "Login required"
+
+    # Client / app restrictions (YouTube's "Made for Kids" type blocks).
+    if "not available on this app" in lowered or "not available in this app" in lowered:
+        return "Restricted content"
+
+    # Permanent gone-vs-temporary-block. Check "removed" / "deleted" before
+    # the generic "video unavailable" so we get the more accurate label.
+    if "removed" in lowered or "deleted" in lowered or "has been taken down" in lowered:
         return "Removed"
+    if "copyright" in lowered:
+        return "Removed (copyright)"
+
+    # Generic catch-all. "Video unavailable" used to be labeled as
+    # "Unavailable in your region" but YouTube uses that phrase for many
+    # different conditions (geo-block, channel takedown, unlisted-gone,
+    # etc.) so claiming the cause is misleading.
+    if "video unavailable" in lowered or "this video is unavailable" in lowered or "not available" in lowered:
+        return "Unavailable"
+
     return "Couldn't load metadata"
 
 
