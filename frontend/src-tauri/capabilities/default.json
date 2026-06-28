@@ -26,6 +26,14 @@
     "updater:default",
     "dialog:default",
     "fs:default",
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [{ "path": "**" }]
+    },
+    {
+      "identifier": "fs:scope",
+      "allow": [{ "path": "**" }]
+    },
     "notification:default"
   ]
 }
