@@ -255,11 +255,29 @@ export default function GenerateThumbnailModal({
     canvas.width = v.videoWidth || 1280
     canvas.height = v.videoHeight || 720
     const ctx = canvas.getContext("2d")
-    if (!ctx) return
-    ctx.drawImage(v, 0, 0, canvas.width, canvas.height)
+    if (!ctx) {
+      toast.error("Couldn't capture frame", { description: "Canvas context unavailable." })
+      return
+    }
+    try {
+      ctx.drawImage(v, 0, 0, canvas.width, canvas.height)
+    } catch (err) {
+      // Tainted-canvas SecurityError on cross-origin video without CORS.
+      // Shouldn't happen now that the video has crossOrigin=anonymous, but
+      // surface it clearly if a future change regresses the setup.
+      toast.error("Couldn't capture frame", { description: String(err) })
+      return
+    }
     canvas.toBlob(
       (blob) => {
-        if (!blob) return
+        if (!blob) {
+          // toBlob also returns null for tainted canvases on some engines,
+          // and for other unrecoverable encoder failures.
+          toast.error("Couldn't capture frame", {
+            description: "Browser refused the canvas write (likely a CORS regression on the video stream).",
+          })
+          return
+        }
         const url = URL.createObjectURL(blob)
         const filename = `v_${videoId}_frame_${Math.floor(at)}s.jpg`
         captureHistory.addCapture({
@@ -331,6 +349,15 @@ export default function GenerateThumbnailModal({
                   <video
                     ref={videoRef}
                     src={apiUrl(`/api/capture_thumbnail?token=${encodeURIComponent(token)}`)}
+                    // crossOrigin is REQUIRED for canvas.drawImage(video) +
+                    // canvas.toBlob to work without tainting the canvas. In
+                    // Tauri the frontend lives at tauri://localhost and the
+                    // backend at http://127.0.0.1:PORT -- different origins.
+                    // Without this attribute the manual Capture-frame button
+                    // silently fails (toBlob calls back with null on a
+                    // tainted canvas). The off-screen prefetch video already
+                    // had this set; copy-paste oversight on the visible one.
+                    crossOrigin="anonymous"
                     className="w-full h-full object-contain"
                     preload="auto"
                     muted
