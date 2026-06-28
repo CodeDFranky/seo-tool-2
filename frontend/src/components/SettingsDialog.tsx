@@ -1,10 +1,11 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
-import { FolderOpen, X } from "lucide-react"
+import { FolderOpen, Trash2, X } from "lucide-react"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
 
 import { cn } from "@/lib/utils"
 import { useSetting } from "@/lib/settings"
+import { channelCacheSize, clearChannelCache } from "@/lib/channel-cache"
 
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
@@ -27,6 +28,22 @@ interface SettingsDialogProps {
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [defaultDir, setDefaultDir] = useSetting("defaultDownloadDir")
   const [browsing, setBrowsing] = useState(false)
+  // Re-counts on every open so a recent fetch's contribution is
+  // visible. localStorage doesn't emit a "size changed" event for
+  // unrelated namespaces so we don't need to subscribe to anything.
+  const [cacheCount, setCacheCount] = useState(0)
+  useEffect(() => {
+    if (open) setCacheCount(channelCacheSize())
+  }, [open])
+
+  function handleClearChannelCache() {
+    clearChannelCache()
+    setCacheCount(0)
+    toast.success("Channel cache cleared", {
+      description: "Next fetch will hit the source live.",
+      duration: 2400,
+    })
+  }
 
   async function handleBrowse() {
     if (!inTauri()) {
@@ -150,6 +167,41 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 </div>
                 <p className="text-[11.5px] text-ink-3 leading-relaxed">
                   When set, saves skip the Save-As dialog and write directly to this folder.
+                </p>
+              </div>
+              <div className="flex flex-col gap-1.5 pt-3 border-t border-line-soft">
+                <label className="text-[12.5px] font-medium text-ink">
+                  Channel cache
+                </label>
+                <div className="flex gap-2 items-center">
+                  <div
+                    className={cn(
+                      "flex-1 h-9 px-3 inline-flex items-center bg-surface-2 text-[12.5px]",
+                      "text-ink-2 font-mono tabular-nums",
+                    )}
+                  >
+                    {cacheCount === 0
+                      ? "Empty"
+                      : `${cacheCount} ${cacheCount === 1 ? "entry" : "entries"} cached`}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleClearChannelCache}
+                    disabled={cacheCount === 0}
+                    className={cn(
+                      "shrink-0 inline-flex items-center justify-center gap-1.5 h-9 px-3",
+                      "bg-surface-2 text-[12.5px] font-medium text-ink-3",
+                      "hover:bg-bad/15 hover:text-bad transition-colors",
+                      "disabled:opacity-50 disabled:pointer-events-none",
+                    )}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Clear
+                  </button>
+                </div>
+                <p className="text-[11.5px] text-ink-3 leading-relaxed">
+                  Re-fetching a recently-viewed channel hits this cache instead of the source.
+                  Entries expire after 1 hour. Clear it if a fetch looks stale.
                 </p>
               </div>
             </section>
