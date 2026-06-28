@@ -383,12 +383,11 @@ def capture_thumbnail_start():
                         "--merge-output-format", "mp4",
                         "--no-playlist",
                         "--newline",
-                        # Polite-use flags per yt-dlp Extractors wiki guidance.
-                        "--sleep-requests", "2",
+                        # Tuned for a single-user desktop rather than a cloud deploy, while keeping polite-use floors that protect the user's residential IP from YouTube/Vimeo automation detection.
+                        "--sleep-requests", "1",
                         "--sleep-interval", "5",
                         "--max-sleep-interval", "10",
-                        "--limit-rate", "5M",
-                        "--concurrent-fragments", "1",
+                        "--concurrent-fragments", "4",
                         "-o", output_template,
                         video_url,
                     ],
