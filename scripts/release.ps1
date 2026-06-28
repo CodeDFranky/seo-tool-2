@@ -40,7 +40,12 @@ param(
     [switch]$DryRun
 )
 
-$ErrorActionPreference = "Stop"
+# Continue (not Stop) because git/gh write informational messages to stderr
+# (warnings about CRLF, branch tracking, etc.) and Windows PowerShell would
+# otherwise wrap each line as an ErrorRecord and kill the script. Every
+# critical step explicitly checks $LASTEXITCODE (or $proc.ExitCode for the
+# Start-Process'd ones) and calls Die on failure.
+$ErrorActionPreference = "Continue"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $ProjectRoot
 
@@ -184,14 +189,19 @@ if ($DryRun) {
 # -- 6. Commit, tag, push ------------------------------------------------------
 Step "Commit + tag + push"
 
-git add frontend/src-tauri/tauri.conf.json frontend/src-tauri/Cargo.toml frontend/package.json frontend/src-tauri/Cargo.lock 2>$null
-git commit -m "Release: v$Version" | Out-Null
+git add frontend/src-tauri/tauri.conf.json frontend/src-tauri/Cargo.toml frontend/package.json frontend/src-tauri/Cargo.lock 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) { Die "git add failed." }
+
+git commit -m "Release: v$Version" 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) { Die "git commit failed." }
 Ok "Commit created"
 
-git tag "v$Version"
+git tag "v$Version" 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) { Die "git tag failed." }
 Ok "Tag v$Version created"
 
-git push origin master --tags
+git push origin master --tags 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) { Die "git push failed. Local commit + tag are in place; push manually with: git push origin master --tags" }
 Ok "Pushed to origin"
 
 # -- 7. Publish GitHub Release -------------------------------------------------
@@ -201,14 +211,13 @@ gh release create "v$Version" `
     --title "v$Version" `
     --notes "DFR Toolkit v$Version.`n`nDownload and double-click the installer below. Windows SmartScreen will warn; click ""More info"" then ""Run anyway"" (unsigned binary; harmless).`n`nThe app will auto-update on its next launch for anyone already on an older version." `
     --latest `
-    $stagedExe $stagedJson
+    $stagedExe $stagedJson 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) { Die "gh release create failed." }
 
 # Note: .sig is intentionally NOT uploaded as a release asset. The
 # minisign signature is already embedded inline in latest.json (the
 # updater reads it from there). Uploading a separate .sig file would be
 # redundant clutter on the GitHub Releases UI.
-
-if ($LASTEXITCODE -ne 0) { Die "gh release create failed." }
 
 Write-Host "`n[ok] Released v$Version" -ForegroundColor Green
 Write-Host "   https://github.com/CodeDFranky/seo-tool-2/releases/tag/v$Version" -ForegroundColor Green
