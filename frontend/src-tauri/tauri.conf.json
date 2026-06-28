@@ -38,7 +38,12 @@
     ],
     "externalBin": [
       "binaries/seo-backend"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico"
+      }
+    }
   },
   "plugins": {
     "updater": {
