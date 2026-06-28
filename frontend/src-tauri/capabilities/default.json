@@ -17,6 +17,12 @@
         }
       ]
     },
+    {
+      "identifier": "shell:allow-open",
+      "allow": [
+        { "url": "**" }
+      ]
+    },
     "updater:default",
     "dialog:default",
     "fs:default"

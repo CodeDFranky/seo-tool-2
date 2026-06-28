@@ -22,6 +22,7 @@ import { Progress } from "@/components/ui/progress"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { VideoGrid } from "./VideoGrid"
 import { CaptureHistoryButton } from "./capture-history"
+import { DownloadHistoryButton } from "./download-history"
 import {
   ActiveCapturesProvider,
   useActiveCapturesActions,
@@ -41,6 +42,9 @@ import {
 } from "@/lib/api"
 import { describeUrl, resolveSupportedUrl } from "@/lib/videoUrl"
 import { saveBlob } from "@/lib/saveBlob"
+import { getSetting } from "@/lib/settings"
+import { recordDownload } from "@/lib/download-history"
+import { revealInFolder } from "@/lib/reveal"
 
 /**
  * Run `worker` over `items` with a fixed concurrency. Used to stay under
@@ -367,19 +371,29 @@ function YoutubeTabInner() {
       selectedIds.has(v.video_id)
     )
     if (selected.length === 0) return
+    const filename = "thumbnails.zip"
     const toastId = toast.loading(`Preparing ${selected.length} thumbnail(s)`)
     try {
       const blob = await downloadThumbnails(
         selected.map((v) => ({ url: v.thumbnail, title: v.title }))
       )
-      const result = await saveBlob(blob, "thumbnails.zip", [
-        { name: "ZIP archive", extensions: ["zip"] },
-      ])
-      if (result === "cancelled") {
+      const result = await saveBlob(
+        blob,
+        filename,
+        [{ name: "ZIP archive", extensions: ["zip"] }],
+        getSetting("defaultDownloadDir"),
+      )
+      if (result.status === "cancelled") {
         toast.dismiss(toastId)
         return
       }
-      toast.success("Saved", { id: toastId })
+      recordDownload({ filename, path: result.path, kind: "batch-zip", size: blob.size })
+      toast.success(`Saved ${filename}`, {
+        id: toastId,
+        description: result.path,
+        action: { label: "Reveal", onClick: () => revealInFolder(result.path) },
+        duration: 4000,
+      })
     } catch (err) {
       toast.error("Download failed", { id: toastId, description: String(err) })
     }
@@ -472,7 +486,10 @@ function YoutubeTabInner() {
                   )}
                 </div>
               )}
-              <CaptureHistoryButton />
+              <div className="flex items-center gap-1.5">
+                <DownloadHistoryButton />
+                <CaptureHistoryButton />
+              </div>
             </div>
           </header>
 

@@ -10,6 +10,9 @@ import { fetchThumbnailFile, proxyThumbnailUrl, type VideoInfo } from "@/lib/api
 import { apiUrl } from "@/lib/backend"
 import { setSolidDragImage } from "@/lib/drag-image"
 import { saveBlob } from "@/lib/saveBlob"
+import { getSetting } from "@/lib/settings"
+import { recordDownload } from "@/lib/download-history"
+import { revealInFolder } from "@/lib/reveal"
 import { cn } from "@/lib/utils"
 
 /** Resolve a thumbnail URL to something the browser can fetch:
@@ -114,18 +117,25 @@ function VideoCardImpl({
   }
   async function downloadThumbnail() {
     const filters = [{ name: "JPEG image", extensions: ["jpg", "jpeg"] }]
-    const cached = blobCache.get(video.video_id)
-    if (cached) {
-      await saveBlob(cached, filename, filters)
-      return
-    }
-    // No cached blob yet — fetch it through the proxy so we have real bytes
-    // for the native dialog/fs write (and the web fallback gets a stable blob URL).
+    const defaultDir = getSetting("defaultDownloadDir")
     try {
-      const file = await fetchThumbnailFile(video.video_id, video.platform, filename, 12000)
-      blobCache.set(video.video_id, file)
-      setThumbReady(true)
-      await saveBlob(file, filename, filters)
+      let file = blobCache.get(video.video_id)
+      if (!file) {
+        // No cached blob yet — fetch it through the proxy so we have real
+        // bytes for the native dialog/fs write (and the web fallback gets
+        // a stable blob URL).
+        file = await fetchThumbnailFile(video.video_id, video.platform, filename, 12000)
+        blobCache.set(video.video_id, file)
+        setThumbReady(true)
+      }
+      const result = await saveBlob(file, filename, filters, defaultDir)
+      if (result.status === "cancelled") return
+      recordDownload({ filename, path: result.path, kind: "thumbnail", size: file.size })
+      toast.success(`Saved ${filename}`, {
+        description: result.path,
+        action: { label: "Reveal", onClick: () => revealInFolder(result.path) },
+        duration: 4000,
+      })
     } catch (err) {
       toast.error("Download failed", { description: String(err) })
     }

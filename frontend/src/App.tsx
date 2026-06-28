@@ -10,6 +10,12 @@ import {
   CaptureHistoryPanel,
   useCaptureHistoryActions,
 } from "@/components/youtube/capture-history"
+import {
+  DownloadHistoryProvider,
+  DownloadHistoryPanel,
+  useDownloadHistoryActions,
+} from "@/components/youtube/download-history"
+import { SettingsButton } from "@/components/SettingsButton"
 
 type Tool = "seo" | "vlog"
 type View = "landing" | "app"
@@ -48,8 +54,9 @@ function AppShell() {
   const [view, setView] = useState<View>(readStoredView)
   const [tool, setTool] = useState<Tool>(readStoredTool)
   // Actions context — stable identity. AppShell will not re-render on
-  // capture mutations because of this.
+  // capture / download mutations because of this.
   const { setPanelOpen } = useCaptureHistoryActions()
+  const { setPanelOpen: setDownloadsPanelOpen } = useDownloadHistoryActions()
 
   // Persist the active tab and view so a reload preserves the user's spot.
   useEffect(() => {
@@ -59,11 +66,14 @@ function AppShell() {
     try { localStorage.setItem(VIEW_STORAGE_KEY, view) } catch { /* ignore */ }
   }, [view])
 
-  // Auto-close the capture history panel when leaving the Vlog tab or
-  // returning to landing — both would otherwise overlay incorrect surfaces.
+  // Auto-close the side panels when leaving the Vlog tab or returning to
+  // landing — both would otherwise overlay incorrect surfaces.
   useEffect(() => {
-    if (tool !== "vlog" || view !== "app") setPanelOpen(false)
-  }, [tool, view, setPanelOpen])
+    if (tool !== "vlog" || view !== "app") {
+      setPanelOpen(false)
+      setDownloadsPanelOpen(false)
+    }
+  }, [tool, view, setPanelOpen, setDownloadsPanelOpen])
 
   const enterApp = useCallback((nextTool: Tool) => {
     setTool(nextTool)
@@ -163,8 +173,11 @@ function AppShell() {
             })}
           </nav>
 
-          <div className="hidden sm:block shrink-0 text-[11.5px] font-mono text-white/40">
-            v{__APP_VERSION__}
+          <div className="hidden sm:flex items-center gap-2 shrink-0">
+            <SettingsButton />
+            <span className="text-[11.5px] font-mono text-white/40">
+              v{__APP_VERSION__}
+            </span>
           </div>
         </header>
 
@@ -204,7 +217,12 @@ function AppShell() {
             </motion.div>
           </main>
 
-          {tool === "vlog" && <CaptureHistoryPanel />}
+          {tool === "vlog" && (
+            <>
+              <DownloadHistoryPanel />
+              <CaptureHistoryPanel />
+            </>
+          )}
         </div>
       </motion.div>
 
@@ -216,7 +234,9 @@ function AppShell() {
 export default function App() {
   return (
     <CaptureHistoryProvider>
-      <AppShell />
+      <DownloadHistoryProvider>
+        <AppShell />
+      </DownloadHistoryProvider>
     </CaptureHistoryProvider>
   )
 }

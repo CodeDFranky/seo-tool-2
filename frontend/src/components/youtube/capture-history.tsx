@@ -3,12 +3,16 @@ import {
   type ReactNode,
 } from "react"
 import { AnimatePresence, motion } from "framer-motion"
+import { toast } from "sonner"
 import { ChevronDown, Download, GripVertical, History, Trash2, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useMediaQuery } from "@/lib/useMediaQuery"
 import { idbClear, idbDelete, idbLoadAll, idbPut } from "./capture-idb"
 import { setSolidDragImage } from "@/lib/drag-image"
 import { saveBlob } from "@/lib/saveBlob"
+import { getSetting } from "@/lib/settings"
+import { recordDownload } from "@/lib/download-history"
+import { revealInFolder } from "@/lib/reveal"
 
 const MAX_CAPTURES = 100
 
@@ -216,10 +220,25 @@ function handleCaptureDrag(e: React.DragEvent<HTMLDivElement>, c: Capture) {
   setSolidDragImage(e, img)
 }
 
-function downloadCapture(c: Capture) {
-  void saveBlob(c.file, c.file.name, [
-    { name: "JPEG image", extensions: ["jpg", "jpeg"] },
-  ])
+async function downloadCapture(c: Capture) {
+  const filename = c.file.name
+  try {
+    const result = await saveBlob(
+      c.file,
+      filename,
+      [{ name: "JPEG image", extensions: ["jpg", "jpeg"] }],
+      getSetting("defaultDownloadDir"),
+    )
+    if (result.status === "cancelled") return
+    recordDownload({ filename, path: result.path, kind: "frame", size: c.file.size })
+    toast.success(`Saved ${filename}`, {
+      description: result.path,
+      action: { label: "Reveal", onClick: () => revealInFolder(result.path) },
+      duration: 4000,
+    })
+  } catch (err) {
+    toast.error("Download failed", { description: String(err) })
+  }
 }
 
 function formatClock(secs: number): string {
@@ -271,7 +290,7 @@ export function CaptureTile({
       {/* Top-right hover actions. */}
       <div className="absolute top-1 right-1 flex items-center gap-1 opacity-0 group-hover/cap:opacity-100 transition-opacity">
         <button
-          onClick={(e) => { e.stopPropagation(); downloadCapture(c) }}
+          onClick={(e) => { e.stopPropagation(); void downloadCapture(c) }}
           className={cn(
             "inline-flex items-center justify-center bg-jet text-ink-on-jet hover:bg-jet-2 border border-white/15",
             compact ? "h-4 w-4" : "h-5 w-5"
