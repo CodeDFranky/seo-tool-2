@@ -19,6 +19,34 @@ def _build_video_url(video_id: str, platform: str) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
+def _fallback_video_info(video_id: str, platform: str, reason: str) -> dict:
+    """Synthesize a usable metadata dict when yt-dlp can't extract one.
+
+    Premieres, members-only videos, and region-blocked uploads all make
+    yt-dlp's extract_info raise — even though the upload itself still has
+    a thumbnail available at the standard CDN URL. Returning a partial
+    record (real thumbnail, placeholder title) keeps the card visible
+    instead of silently dropping it from the grid.
+    """
+    if platform == "vimeo":
+        thumbnail = ""  # No equivalent always-on Vimeo thumbnail URL pattern.
+        embed_url = f"https://player.vimeo.com/video/{video_id}"
+    else:
+        # YouTube's CDN serves /maxresdefault.jpg for any video ID,
+        # including unaired premieres and private/unlisted uploads.
+        thumbnail = f"https://i.ytimg.com/vi/{video_id}/maxresdefault.jpg"
+        embed_url = f"https://www.youtube.com/embed/{video_id}"
+    return {
+        "title": f"[Unavailable: {reason}]",
+        "thumbnail": thumbnail,
+        "embed_url": embed_url,
+        "video_id": video_id,
+        "platform": platform,
+        "unavailable": True,
+        "unavailable_reason": reason,
+    }
+
+
 def get_video_ids(url: str, start: int = 1, end: int | None = None) -> list[str]:
     """Enumerate video IDs from a playlist/channel/user URL.
 
@@ -47,24 +75,52 @@ def get_video_ids(url: str, start: int = 1, end: int | None = None) -> list[str]
 
 def get_video_info(video_id: str, platform: str = "youtube") -> dict:
     target = _build_video_url(video_id, platform)
-    with yt_dlp.YoutubeDL(_METADATA_OPTS) as ydl:
-        info = ydl.extract_info(target, download=False)
-        if not info:
-            raise ValueError("Failed to get video info")
+    try:
+        with yt_dlp.YoutubeDL(_METADATA_OPTS) as ydl:
+            info = ydl.extract_info(target, download=False)
+    except yt_dlp.utils.DownloadError as e:
+        # Premieres, members-only videos, age-gated content, region-blocked
+        # uploads, and deleted-but-still-listed videos all raise here. The
+        # thumbnail typically still resolves via the standard CDN URL, so we
+        # fall back to a synthetic info dict and let the card render with
+        # a "[Unavailable: ...]" title rather than disappearing from the grid.
+        reason = _summarize_yt_dlp_error(str(e))
+        return _fallback_video_info(video_id, platform, reason)
 
-        embed_url = (
-            f"https://player.vimeo.com/video/{info.get('id')}"
-            if platform == "vimeo"
-            else f"https://www.youtube.com/embed/{info.get('id')}"
-        )
+    if not info:
+        return _fallback_video_info(video_id, platform, "no metadata returned")
 
-        return {
-            "title": info.get("title"),
-            "thumbnail": get_last_non_webp_thumbnail(info.get("thumbnails", [])),
-            "embed_url": embed_url,
-            "video_id": info.get("id"),
-            "platform": platform,
-        }
+    embed_url = (
+        f"https://player.vimeo.com/video/{info.get('id')}"
+        if platform == "vimeo"
+        else f"https://www.youtube.com/embed/{info.get('id')}"
+    )
+
+    return {
+        "title": info.get("title"),
+        "thumbnail": get_last_non_webp_thumbnail(info.get("thumbnails", [])),
+        "embed_url": embed_url,
+        "video_id": info.get("id"),
+        "platform": platform,
+    }
+
+
+def _summarize_yt_dlp_error(msg: str) -> str:
+    """Pick a short, user-readable reason out of a yt-dlp error message."""
+    lowered = msg.lower()
+    if "premieres in" in lowered or "premiere" in lowered:
+        return "Premiere not yet aired"
+    if "members-only" in lowered or "join this channel" in lowered:
+        return "Members-only"
+    if "private video" in lowered:
+        return "Private"
+    if "video unavailable" in lowered or "this video is unavailable" in lowered:
+        return "Unavailable in your region"
+    if "age" in lowered and "restrict" in lowered:
+        return "Age-restricted"
+    if "removed" in lowered or "deleted" in lowered:
+        return "Removed"
+    return "Couldn't load metadata"
 
 
 def get_last_non_webp_thumbnail(thumbnails: list) -> str:
